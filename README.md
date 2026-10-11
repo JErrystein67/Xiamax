@@ -1,24 +1,21 @@
-# Liquid Glass Home (prototype launcher)
+# Liquid Glass Home (native Android launcher)
 
-Android 15 style home screen: Liquid Glass UI, Dynamic Island music hub, glass app icons.
-The UI is the HTML prototype (app/src/main/assets/index.html) running full-screen in a WebView.
+Native Kotlin + Jetpack Compose home screen. No WebView.
 
-## Build the APK
-1. Android Studio -> Open -> select this folder, let Gradle sync (needs internet once).
-2. Plug in a phone (USB debugging on) or start an emulator, press Run.
-   Or: Build > Build APK(s) -> app/build/outputs/apk/debug/app-debug.apk
+## What it does
+- Liquid Glass UI: glass panels, glass app tiles with glare, drifting colour wallpaper (pauses after 25 s idle to save battery)
+- Dynamic Island around the camera: real now-playing info and controls (play/pause/skip/seek, album art, visualizer),
+  notification banners, incoming-call card. Spring animated.
+- Real apps: tiles launch the real Instagram / Facebook / YouTube / WhatsApp / Spotify (if installed) with a scale-up window animation.
+  Swipe up (or tap the handle) for the app drawer with every installed app and search.
+- Clock and real battery ring widgets. (Weather is a placeholder.)
+- Registers as a home app.
 
-## Use it as your home screen
-Settings > Apps > Default apps > Home app > Liquid Glass.
-Tapping a tile plays the open animation, then launches the real app (Instagram, Facebook, YouTube, WhatsApp, Spotify, Photos, Maps, Notes) or the system Phone, Messages, Camera, Settings. If an app is not installed, it shows the demo screen instead.
-To add or swap an app, edit the `apps` / `dock` arrays in assets/index.html (last field = package name, e.g. `pkg:com.whatsapp`).
+## First run
+1. Install the APK, press Home, choose Liquid Glass as the home app (or Settings > Apps > Default apps > Home app).
+2. Tap "Allow music & notifications on the island" at the bottom and enable Liquid Glass in Notification access.
+   Android may ask you to allow restricted settings: App info > ⋮ > Allow restricted settings.
 
-## Tweaks
-- Island position over your camera: `#island{top:11px}` in assets/index.html
-- Fonts load from Google Fonts when online, otherwise it falls back to the system font.
-
-## Get the APK without Android Studio
-1. Create a new GitHub repo and upload everything in this folder (keep the .github folder).
-2. Open the Actions tab -> "Build APK" runs automatically (or press Run workflow).
-3. When it finishes, download the `LiquidGlassHome-apk` artifact, unzip it, and install app-debug.apk on your phone
-   (allow "install unknown apps" for your browser or file manager).
+## Build
+GitHub: push this folder, the workflow in .github/workflows/build.yml builds app-debug.apk (Actions > Artifacts).
+Android Studio: open folder, Run.
