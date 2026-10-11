@@ -92,7 +92,7 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp)
         else -> IslandState.Idle
     }
     val sz = when (st) {
-        IslandState.Idle -> Triple(126.dp, 36.dp, 18.dp)
+        IslandState.Idle -> if (Prefs.hideIdle) Triple(0.dp, 0.dp, 0.dp) else Triple(126.dp, 36.dp, 18.dp)
         IslandState.Music -> Triple(214.dp, 36.dp, 18.dp)
         IslandState.Full -> Triple(358.dp, 222.dp, 36.dp)
         IslandState.Call -> Triple(358.dp, 96.dp, 38.dp)

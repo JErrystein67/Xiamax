@@ -23,11 +23,16 @@ data class Note(val key: String, val title: String, val text: String, val isCall
 
 object Signals {
     var home by mutableIntStateOf(0)
+    var resume by mutableIntStateOf(0)
 }
 
 /** Needs "Notification access" (granted once in system settings). Feeds the island. */
 class MediaListener : NotificationListenerService() {
-    override fun onListenerConnected() { MediaHub.start(applicationContext) }
+    override fun onCreate() { super.onCreate(); Prefs.init(applicationContext) }
+    override fun onListenerConnected() {
+        MediaHub.start(applicationContext)
+        OverlayControl.apply(applicationContext)
+    }
     override fun onNotificationPosted(sbn: StatusBarNotification) { MediaHub.onPosted(applicationContext, sbn) }
     override fun onNotificationRemoved(sbn: StatusBarNotification) { MediaHub.onRemoved(sbn) }
 }
@@ -128,6 +133,8 @@ object MediaHub {
         if (sbn.packageName == ctx.packageName) return
         val n = sbn.notification
         val incomingCall = n.category == Notification.CATEGORY_CALL && n.fullScreenIntent != null
+        if (incomingCall && !Prefs.calls) return
+        if (!incomingCall && !Prefs.banners) return
         if (!incomingCall) {
             if ((n.flags and Notification.FLAG_ONGOING_EVENT) != 0) return
             if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return

@@ -5,10 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
-import android.provider.Settings
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -49,11 +51,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,21 +65,23 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -90,7 +96,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -101,11 +109,36 @@ import kotlin.math.sin
 @Composable
 fun HomeScreen() {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
-    var drawer by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(Prefs.firstRun) }
     var pkgVer by remember { mutableIntStateOf(0) }
     var touch by remember { mutableLongStateOf(0L) }
     var calm by remember { mutableStateOf(false) }
+
+    // drawer position: 1 = closed (below the screen), 0 = fully open. It follows the finger.
+    var frac by remember { mutableFloatStateOf(1f) }
+    val jobHolder = remember { arrayOfNulls<Job>(1) }
+    val lastDy = remember { floatArrayOf(0f) }
+    val drawerOpen by remember { derivedStateOf { frac < 0.98f } }
+    val fullyOpen by remember { derivedStateOf { frac <= 0.001f } }
+
+    fun animateDrawer(target: Float) {
+        jobHolder[0]?.cancel()
+        jobHolder[0] = scope.launch {
+            animate(frac, target, 0f, spring(dampingRatio = .9f, stiffness = 260f)) { v, _ -> frac = v }
+        }
+    }
+    fun dragStart() { jobHolder[0]?.cancel(); lastDy[0] = 0f }
+    fun settle() {
+        val t = when {
+            lastDy[0] < -6f -> 0f
+            lastDy[0] > 6f -> 1f
+            frac < .6f -> 0f
+            else -> 1f
+        }
+        animateDrawer(t)
+    }
 
     // refresh app list when apps are installed / removed
     DisposableEffect(Unit) {
@@ -127,9 +160,21 @@ fun HomeScreen() {
 
     // battery saver: wallpaper drift pauses after 25 s without touch
     LaunchedEffect(touch) { calm = false; delay(25_000); calm = true }
-    LaunchedEffect(Signals.home) { drawer = false; expanded = false }
+    var lastHome by remember { mutableIntStateOf(Signals.home) }
+    LaunchedEffect(Signals.home) {
+        if (Signals.home != lastHome) {
+            lastHome = Signals.home
+            animateDrawer(1f); expanded = false; settingsOpen = false
+        }
+    }
     LaunchedEffect(MediaHub.active) { if (!MediaHub.active) expanded = false }
-    BackHandler(enabled = drawer || expanded) { if (drawer) drawer = false else expanded = false }
+    BackHandler(enabled = settingsOpen || drawerOpen || expanded) {
+        when {
+            settingsOpen -> { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
+            drawerOpen -> animateDrawer(1f)
+            else -> expanded = false
+        }
+    }
 
     val d = LocalDensity.current
     val barPx = maxOf(WindowInsets.statusBars.getTop(d), WindowInsets.displayCutout.getTop(d))
@@ -156,23 +201,35 @@ fun HomeScreen() {
             }
     ) {
         val maxW = maxWidth - 24.dp
-        Wallpaper(!calm)
+        val hPx = constraints.maxHeight.toFloat()
+        Wallpaper(!calm && !drawerOpen && Prefs.wallAnim)
 
+        // ---- home content ----
         Column(
             Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    val k = 1f - frac
+                    alpha = 1f - .5f * k
+                    scaleX = 1f - .05f * k
+                    scaleY = scaleX
+                }
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, top = 56.dp, bottom = 8.dp)
-                .pointerInput(Unit) {
-                    var acc = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = { acc = 0f },
-                        onVerticalDrag = { _, dy ->
-                            acc += dy
-                            if (acc < -140f) { acc = 0f; drawer = true }
-                        }
-                    )
+                .pointerInput(fullyOpen) {
+                    if (!fullyOpen) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragStart() },
+                            onDragEnd = { settle() },
+                            onDragCancel = { settle() },
+                            onVerticalDrag = { change, dy ->
+                                change.consume()
+                                lastDy[0] = dy
+                                frac = (frac + dy / hPx).coerceIn(0f, 1f)
+                            }
+                        )
+                    }
                 }
         ) {
             Row(Modifier.fillMaxWidth().height(168.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -200,13 +257,11 @@ fun HomeScreen() {
                 Box(
                     Modifier
                         .align(Alignment.CenterHorizontally)
-                        .pressable {
-                            try { ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } catch (e: Exception) { }
-                        }
+                        .pressable { settingsOpen = true }
                         .glass(RoundedCornerShape(22.dp))
                         .padding(horizontal = 18.dp, vertical = 10.dp)
                 ) {
-                    Text("Allow music & notifications on the island", color = Pal.ink, fontSize = 13.sp)
+                    Text("Set up the Dynamic Island", color = Pal.ink, fontSize = 13.sp)
                 }
             }
             Box(
@@ -214,7 +269,7 @@ fun HomeScreen() {
                     .align(Alignment.CenterHorizontally)
                     .width(80.dp)
                     .height(28.dp)
-                    .pressable { drawer = true },
+                    .pressable { animateDrawer(0f) },
                 contentAlignment = Alignment.Center
             ) {
                 Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .45f)))
@@ -227,16 +282,41 @@ fun HomeScreen() {
             }
         }
 
-        Box(Modifier.fillMaxWidth().align(Alignment.TopCenter), contentAlignment = Alignment.TopCenter) {
-            Island(expanded, { expanded = it }, topPad, maxW)
+        // ---- app drawer: always composed, slides with the finger ----
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = frac * size.height
+                    alpha = if (frac >= 1f) 0f else 1f
+                }
+        ) {
+            Drawer(
+                apps = apps,
+                onDragStart = { dragStart() },
+                onDrag = { dy -> lastDy[0] = dy; frac = (frac + dy / hPx).coerceIn(0f, 1f) },
+                onDragEnd = { settle() },
+                onClose = { animateDrawer(1f) },
+                onSettings = { settingsOpen = true }
+            )
+        }
+
+        // ---- island (above everything). Hidden here when the always-on overlay is showing it. ----
+        if (!(Prefs.overlay && OverlayState.running)) {
+            Box(
+                Modifier.fillMaxWidth().align(Alignment.TopCenter).offset(Prefs.offX.dp, Prefs.offY.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Island(expanded, { expanded = it }, topPad, maxW)
+            }
         }
 
         AnimatedVisibility(
-            visible = drawer,
+            visible = settingsOpen,
             enter = slideInVertically(spring<IntOffset>(dampingRatio = .9f, stiffness = 300f)) { it } + fadeIn(tween(150)),
             exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(180))
         ) {
-            Drawer(apps) { drawer = false }
+            IslandSettings { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
         }
     }
 }
@@ -349,17 +429,24 @@ private fun BatteryCard(modifier: Modifier) {
 }
 
 @Composable
-fun AppTile(label: String?, c1: Color, c2: Color, intent: Intent, content: @Composable BoxScope.() -> Unit) {
+fun AppTile(
+    label: String?, c1: Color, c2: Color, intent: Intent,
+    light: Boolean = false,
+    content: @Composable BoxScope.() -> Unit
+) {
     val ctx = LocalContext.current
     val view = LocalView.current
-    val holder = remember { arrayOfNulls<Rect>(1) }
+    val coords = remember { arrayOfNulls<LayoutCoordinates>(1) }
     Column(
         Modifier
-            .onGloballyPositioned { holder[0] = it.boundsInWindow() }
-            .pressable(.9f, .94f) { launchApp(ctx, view, intent, holder[0]) },
+            .onGloballyPositioned { coords[0] = it }
+            .pressable(.9f, .94f) {
+                val r = try { coords[0]?.takeIf { it.isAttached }?.boundsInWindow() } catch (e: Exception) { null }
+                launchApp(ctx, view, intent, r)
+            },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        GlassTile(c1, c2, content = content)
+        GlassTile(c1, c2, light = light, content = content)
         if (label != null) {
             Spacer(Modifier.height(6.dp))
             Text(
@@ -371,19 +458,26 @@ fun AppTile(label: String?, c1: Color, c2: Color, intent: Intent, content: @Comp
 }
 
 @Composable
-fun AppItemTile(a: AppItem) {
+fun AppItemTile(a: AppItem, light: Boolean = false) {
     val b = brandFor(a.pkg)
     if (b != null) {
-        AppTile(a.label, b.c1, b.c2, a.intent) { GlyphIcon(b.glyph) }
+        AppTile(a.label, b.c1, b.c2, a.intent, light) { GlyphIcon(b.glyph) }
     } else {
-        AppTile(a.label, Color(0xFF9AA3E8), Color(0xFF4A5280), a.intent) {
+        AppTile(a.label, Color(0xFF9AA3E8), Color(0xFF4A5280), a.intent, light) {
             a.icon?.let { Image(it, null, Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))) }
         }
     }
 }
 
 @Composable
-private fun Drawer(apps: List<AppItem>, onClose: () -> Unit) {
+private fun Drawer(
+    apps: List<AppItem>,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onClose: () -> Unit,
+    onSettings: () -> Unit
+) {
     var q by remember { mutableStateOf("") }
     val list = remember(apps, q) {
         if (q.isBlank()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
@@ -391,11 +485,29 @@ private fun Drawer(apps: List<AppItem>, onClose: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xD90B0920), Color(0xF50B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
+            .pointerInput(Unit) { detectTapGestures { } } // swallow touches so nothing behind reacts
             .statusBarsPadding()
-            .padding(top = 56.dp)
+            .padding(top = 28.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        // drag handle: pull down to close
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { onDragStart() },
+                        onDragEnd = { onDragEnd() },
+                        onDragCancel = { onDragEnd() },
+                        onVerticalDrag = { change, dy -> change.consume(); onDrag(dy) }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .4f)))
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .weight(1f)
@@ -421,7 +533,14 @@ private fun Drawer(apps: List<AppItem>, onClose: () -> Unit) {
             }
             Spacer(Modifier.width(10.dp))
             Box(
-                Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = .12f)).pressable(.88f, .88f, onClose),
+                Modifier.size(46.dp).pressable(.88f, .88f, onSettings).clip(CircleShape).background(Color.White.copy(alpha = .12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Settings, null, Modifier.size(22.dp), tint = Color.White)
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.size(46.dp).pressable(.88f, .88f, onClose).clip(CircleShape).background(Color.White.copy(alpha = .12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Filled.KeyboardArrowDown, null, tint = Color.White)
@@ -429,12 +548,12 @@ private fun Drawer(apps: List<AppItem>, onClose: () -> Unit) {
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 20.dp, bottom = 40.dp),
+            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.weight(1f).navigationBarsPadding()
         ) {
-            items(list, key = { it.id }) { AppItemTile(it) }
+            items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
         }
     }
 }
