@@ -57,8 +57,6 @@ fun AppDrawer(
     onSettings: () -> Unit
 ) {
     var q by remember { mutableStateOf("") }
-    
-    // Optimalizované filtrování pro plynulé psaní bez záseků
     val list = remember(apps, q) {
         val query = q.trim().lowercase()
         if (query.isBlank()) {
@@ -146,6 +144,3 @@ fun AppDrawer(
         }
     }
 }
-```[cite: 12]
-
-Tento kód jednoduše zkopíruj, vlož ho do souboru `Drawer.kt` v repozitáři na GitHubu a ulož změny (`Commit changes`).
