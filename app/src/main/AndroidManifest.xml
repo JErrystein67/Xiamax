@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
 
     <queries>
         <intent>
@@ -70,6 +71,18 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Draws the Dynamic Island overlay above other apps" />
+        </service>
+
+        <!-- tile in the phone's own quick settings -->
+        <service
+            android:name=".IslandTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_island"
+            android:label="Dynamic Island"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
 
         <receiver android:name=".BootReceiver" android:exported="true">

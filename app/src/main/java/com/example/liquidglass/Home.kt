@@ -1,5 +1,6 @@
 package com.example.liquidglass
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -101,11 +102,12 @@ import kotlin.math.sin
 private val LabelShadow = Shadow(Color.Black.copy(alpha = .35f), Offset(0f, 1f), 3f)
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(activity: Activity? = null) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(Prefs.firstRun) }
+    var pickerOpen by remember { mutableStateOf(false) }
     var pkgVer by remember { mutableIntStateOf(0) }
     var touch by remember { mutableLongStateOf(0L) }
     var calm by remember { mutableStateOf(false) }
@@ -172,12 +174,13 @@ fun HomeScreen() {
         ContextCompat.registerReceiver(ctx, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose { ctx.unregisterReceiver(r) }
     }
-    val apps by produceState(emptyList<AppItem>(), pkgVer) {
-        value = withContext(Dispatchers.Default) { loadApps(ctx) }
+    val wantFull = Prefs.iconStyle == 2
+    val apps by produceState(emptyList<AppItem>(), pkgVer, wantFull) {
+        value = withContext(Dispatchers.Default) { loadApps(ctx, wantFull) }
     }
 
     val appPages = remember(apps) { apps.chunked(24) }
-    val pageCount = 2 + maxOf(1, appPages.size) // -1 screen, home, app pages
+    val pageCount = 3 + maxOf(1, appPages.size) // -1 screen, home, widgets, app pages
     val pagerState = rememberPagerState(initialPage = 1) { pageCount }
 
     // battery saver: wallpaper drift pauses after 25 s without touch
@@ -186,13 +189,14 @@ fun HomeScreen() {
     LaunchedEffect(Signals.home) {
         if (Signals.home != lastHome) {
             lastHome = Signals.home
-            animateShade(0f); animateDrawer(1f); expanded = false; settingsOpen = false
+            animateShade(0f); animateDrawer(1f); expanded = false; settingsOpen = false; pickerOpen = false
             pagerState.animateScrollToPage(1)
         }
     }
     LaunchedEffect(MediaHub.active) { if (!MediaHub.active) expanded = false }
-    BackHandler(enabled = settingsOpen || drawerOpen || shadeOpen || expanded || pagerState.currentPage != 1) {
+    BackHandler(enabled = pickerOpen || settingsOpen || drawerOpen || shadeOpen || expanded || pagerState.currentPage != 1) {
         when {
+            pickerOpen -> pickerOpen = false
             settingsOpen -> { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
             drawerOpen -> animateDrawer(1f)
             shadeOpen -> animateShade(0f)
@@ -215,7 +219,6 @@ fun HomeScreen() {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(Pal.base)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -230,7 +233,7 @@ fun HomeScreen() {
         val hPx = constraints.maxHeight.toFloat()
         val panelH = maxHeight * .84f
         val panelPx = hPx * .84f
-        Wallpaper(!calm && !shadeOpen && !drawerOpen && Prefs.wallAnim)
+        WallpaperLayer(!calm && !shadeOpen && !drawerOpen)
 
         // ---- pages + page dots + dock ----
         Column(
@@ -264,12 +267,13 @@ fun HomeScreen() {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                beyondViewportPageCount = 1
+                beyondViewportPageCount = if (Prefs.perf == 0) 0 else 1
             ) { page ->
                 when (page) {
                     0 -> DiscoverPage()
                     1 -> HomePage(favs) { settingsOpen = true }
-                    else -> AppPage(appPages.getOrNull(page - 2) ?: emptyList())
+                    2 -> WidgetsPage { pickerOpen = true }
+                    else -> AppPage(appPages.getOrNull(page - 3) ?: emptyList())
                 }
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -302,12 +306,13 @@ fun HomeScreen() {
                 onDragStart = { drawerJob[0]?.cancel(); drawerDy[0] = 0f },
                 onDrag = { dy -> drawerDy[0] = dy; frac = (frac + dy / hPx).coerceIn(0f, 1f) },
                 onDragEnd = { drawerSettle() },
-                onClose = { animateDrawer(1f) }
+                onClose = { animateDrawer(1f) },
+                onSettings = { animateDrawer(1f); settingsOpen = true }
             )
         }
 
         // ---- top edge: pull down on the left half for notifications, right half for the control center ----
-        Box(
+        if (Prefs.shadeMode == 1) Box(
             Modifier
                 .fillMaxWidth()
                 .height(barDp + 36.dp)
@@ -375,12 +380,25 @@ fun HomeScreen() {
         ) {
             IslandSettings { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
         }
+
+        AnimatedVisibility(
+            visible = pickerOpen,
+            enter = slideInVertically(spring<IntOffset>(dampingRatio = .9f, stiffness = 300f)) { it } + fadeIn(tween(150)),
+            exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(180))
+        ) {
+            WidgetPicker(activity) { pickerOpen = false }
+        }
     }
 }
 
 @Composable
 private fun HomePage(favs: List<AppItem>, onSetup: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 10.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp)
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onSetup() }) } // long-press empty space: settings
+    ) {
         Row(Modifier.fillMaxWidth().height(168.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ClockCard(Modifier.weight(1.55f).fillMaxHeight())
             BatteryCard(Modifier.weight(1f).fillMaxHeight())
@@ -414,37 +432,6 @@ private fun HomePage(favs: List<AppItem>, onSetup: () -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun Wallpaper(animate: Boolean) {
-    var phase by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(animate) {
-        if (animate) {
-            var last = 0L
-            while (true) {
-                withFrameNanos { n -> if (n - last > 33_000_000L) { last = n; phase = n / 1_000_000_000f } }
-            }
-        }
-    }
-    Canvas(Modifier.fillMaxSize()) {
-        val p = phase
-        val w = size.width
-        val h = size.height
-        drawRect(Pal.base)
-        fun blob(c: Color, cx: Float, cy: Float, r: Float, ax: Float, ay: Float, sp: Float, ph: Float, a: Float) {
-            val x = cx + ax * sin(p * sp + ph)
-            val y = cy + ay * cos(p * sp * .8f + ph)
-            drawCircle(
-                Brush.radialGradient(listOf(c.copy(alpha = a), Color.Transparent), center = Offset(x, y), radius = r),
-                radius = r, center = Offset(x, y)
-            )
-        }
-        blob(Pal.violet, w * .05f, h * .30f, w * 1.0f, w * .18f, h * .05f, .25f, 0f, .85f)
-        blob(Pal.mint, w * .95f, h * .55f, w * .9f, w * .16f, h * .06f, .20f, 2f, .70f)
-        blob(Pal.pink, w * .25f, h * .92f, w * 1.0f, w * .20f, h * .04f, .17f, 4f, .75f)
-        blob(Pal.peach, w * .85f, h * .04f, w * .6f, w * .12f, h * .03f, .22f, 1f, .45f)
     }
 }
 
@@ -542,6 +529,7 @@ private fun BatteryCard(modifier: Modifier) {
 fun AppTile(
     label: String?, c1: Color, c2: Color, intent: Intent,
     light: Boolean = false,
+    raw: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val ctx = LocalContext.current
@@ -556,8 +544,9 @@ fun AppTile(
             },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        GlassTile(c1, c2, light = light, content = content)
-        if (label != null) {
+        if (raw) Box(Modifier.size(Prefs.iconSize.dp), contentAlignment = Alignment.Center, content = content)
+        else GlassTile(c1, c2, light = light, content = content)
+        if (label != null && Prefs.iconLabels) {
             Spacer(Modifier.height(6.dp))
             Text(
                 label, color = Color.White.copy(alpha = .88f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -570,14 +559,23 @@ fun AppTile(
 
 @Composable
 fun AppItemTile(a: AppItem, light: Boolean = false) {
-    val b = brandFor(a.pkg)
-    if (b != null) {
-        AppTile(a.label, b.c1, b.c2, a.intent, light) { GlyphIcon(b.glyph) }
+    if (Prefs.iconStyle == 2) {
+        // the app's own icon, untouched
+        val shape = RoundedCornerShape(Prefs.iconSize.dp * Prefs.iconRound)
+        AppTile(a.label, a.c1, a.c2, a.intent, light, raw = true) {
+            val img = a.full ?: a.icon
+            if (img != null) Image(img, null, Modifier.fillMaxSize().clip(shape))
+        }
     } else {
-        AppTile(a.label, a.c1, a.c2, a.intent, light) {
-            a.icon?.let {
-                // adaptive icons: foreground only, centered, no square behind it
-                Image(it, null, Modifier.size(if (a.adaptive) 50.dp else 36.dp))
+        val b = brandFor(a.pkg)
+        if (b != null) {
+            AppTile(a.label, b.c1, b.c2, a.intent, light) { GlyphIcon(b.glyph) }
+        } else {
+            AppTile(a.label, a.c1, a.c2, a.intent, light) {
+                a.icon?.let {
+                    // adaptive icons: foreground only, centered, no square behind it
+                    Image(it, null, Modifier.size(if (a.adaptive) 50.dp else 36.dp))
+                }
             }
         }
     }

@@ -107,14 +107,25 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp,
     val h by animateDpAsState(sz.second, spec, label = "h")
     val r by animateDpAsState(sz.third, spec, label = "r")
     val shape = RoundedCornerShape(r)
+    val base = Color(Prefs.islandColor)
+    val op = Prefs.islandOpacity
+    val bg = Brush.linearGradient(
+        listOf(
+            base.copy(alpha = (op * .92f).coerceIn(0f, 1f)),
+            Color(base.red * .35f, base.green * .35f, base.blue * .4f, op.coerceIn(0f, 1f))
+        )
+    )
+    val glow = Color(
+        minOf(1f, base.red * 1.8f + .15f), minOf(1f, base.green * 1.8f + .15f), minOf(1f, base.blue * 1.8f + .15f)
+    )
 
     Box(
         Modifier
             .padding(top = topPad)
             .size(w, h)
-            .then(if (shadowOn) Modifier.softShadow(r, Pal.violet, 16.dp, 6.dp, .5f) else Modifier)
+            .then(if (shadowOn) Modifier.softShadow(r, glow, 16.dp, 6.dp, .5f) else Modifier)
             .clip(shape)
-            .background(Brush.linearGradient(listOf(Color(0xA32C245E), Color(0xB8080616))))
+            .background(bg)
             .border(
                 1.dp,
                 Brush.linearGradient(listOf(Color.White.copy(alpha = .5f), Color.White.copy(alpha = .08f), Color.White.copy(alpha = .2f))),
@@ -206,7 +217,7 @@ private fun CompactMusic() {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         ArtView(24.dp, 8.dp)
-        Waveform(MediaHub.playing)
+        Waveform(MediaHub.playing && Prefs.perf > 0)
     }
 }
 
@@ -231,7 +242,7 @@ private fun FullPlayer(onCollapse: () -> Unit) {
     val dur = MediaHub.durationMs
     LaunchedEffect(Unit) { while (true) { pos = MediaHub.position(); delay(100) } }
     LaunchedEffect(MediaHub.playing) {
-        while (MediaHub.playing) { t = (System.nanoTime() / 1_000_000L) / 1000f; delay(33) }
+        while (MediaHub.playing) { t = (System.nanoTime() / 1_000_000L) / 1000f; delay(if (Prefs.perf == 0) 66L else 33L) }
     }
 
     Column(

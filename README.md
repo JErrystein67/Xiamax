@@ -19,3 +19,8 @@ Native Kotlin + Jetpack Compose. No WebView.
 ## Build
 Push this folder to GitHub (include .github). Actions builds app-release.apk (optimized, signed with the bundled key).
 The bundled key means new builds install over old ones. The very first time, uninstall the old debug build.
+
+## Customise (Settings: long-press empty home space, or the gear in the app drawer)
+Icons (style, size, roundness, tint, names), wallpaper (phone's own / gradient / your photo, dim, blur),
+island (colour, opacity, position), widgets page (real Android widgets), pull-down panels (phone's own or Liquid Glass),
+performance (battery saver / balanced / full), HyperOS shortcuts. A Dynamic Island tile can be added to the phone's quick settings.

@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +53,8 @@ fun AppDrawer(
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSettings: () -> Unit
 ) {
     var q by remember { mutableStateOf("") }
     val list = remember(apps, q) {
@@ -109,6 +111,13 @@ fun AppDrawer(
                         }
                     }
                 )
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.size(46.dp).pressable(.88f, .88f, onSettings).clip(CircleShape).background(Color.White.copy(alpha = .12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Settings, null, Modifier.size(22.dp), tint = Color.White)
             }
             Spacer(Modifier.width(10.dp))
             Box(

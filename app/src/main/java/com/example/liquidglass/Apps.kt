@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.asImageBitmap
  */
 class AppItem(
     val label: String, val pkg: String, val id: String,
-    val icon: ImageBitmap?, val adaptive: Boolean,
+    val icon: ImageBitmap?, val adaptive: Boolean, val full: ImageBitmap?,
     val c1: Color, val c2: Color, val intent: Intent
 )
 
@@ -87,7 +87,7 @@ private fun pickTint(a: Color?, b: Color?): Color {
 private fun darker(c: Color) = Color(c.red * .55f, c.green * .55f, c.blue * .62f)
 
 /** Every launchable app on the phone, with real labels and icons. */
-fun loadApps(ctx: Context): List<AppItem> {
+fun loadApps(ctx: Context, withFull: Boolean = false): List<AppItem> {
     val pm = ctx.packageManager
     val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     return pm.queryIntentActivities(q, 0).mapNotNull { ri ->
@@ -98,10 +98,12 @@ fun loadApps(ctx: Context): List<AppItem> {
             .setClassName(pkg, ri.activityInfo.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         var icon: ImageBitmap? = null
+        var full: ImageBitmap? = null
         var adaptive = false
         var tint = neutral
         try {
             val d = ri.loadIcon(pm)
+            if (withFull) full = render(d, 144).asImageBitmap()
             if (Build.VERSION.SDK_INT >= 26 && d is AdaptiveIconDrawable) {
                 val fg = d.foreground
                 val bg = d.background
@@ -118,7 +120,7 @@ fun loadApps(ctx: Context): List<AppItem> {
         } catch (e: Exception) {
             // keep neutral tint and no icon
         }
-        AppItem(ri.loadLabel(pm).toString(), pkg, "$pkg/${ri.activityInfo.name}", icon, adaptive, tint, darker(tint), intent)
+        AppItem(ri.loadLabel(pm).toString(), pkg, "$pkg/${ri.activityInfo.name}", icon, adaptive, full, tint, darker(tint), intent)
     }.sortedBy { it.label.lowercase() }
 }
 

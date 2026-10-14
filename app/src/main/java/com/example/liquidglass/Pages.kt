@@ -77,7 +77,7 @@ private fun Dot(on: Boolean, onClick: () -> Unit) {
         Box(
             Modifier
                 .drawBehind {
-                    if (glow > .01f) {
+                    if (glow > .01f && Prefs.perf > 0) {
                         val rad = size.width * .8f + 9.dp.toPx()
                         drawCircle(
                             Brush.radialGradient(listOf(Pal.mint.copy(alpha = .55f * glow), Color.Transparent), center = center, radius = rad),

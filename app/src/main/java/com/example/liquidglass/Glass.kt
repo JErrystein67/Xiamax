@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -33,11 +34,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-// Brushes are created once. Translucent fills are low alpha so the wallpaper colours show through cleanly.
+// Performance levels (Prefs.perf): 0 battery saver, 1 balanced, 2 full.
+// Brushes are created once, not on every frame.
 private val GlassFill = Brush.linearGradient(
     listOf(Color.White.copy(alpha = .18f), Color.White.copy(alpha = .06f), Color.White.copy(alpha = .12f))
 )
-// Light only on the top edge, fading out. No bright white corners.
 private val GlassRim = Brush.verticalGradient(
     0f to Color.White.copy(alpha = .50f),
     .30f to Color.White.copy(alpha = .12f),
@@ -52,22 +53,21 @@ private val TileRim = Brush.verticalGradient(
 )
 
 /**
- * Soft drop shadow drawn ONLY outside the shape.
- * Android's elevation shadow shows through translucent surfaces as a hard-edged rectangle,
- * which is what caused the visible inner boxes. This version clips the inside out.
+ * Soft drop shadow drawn ONLY outside the shape (Android's elevation shadow shows through translucent
+ * glass as a hard-edged box). Skipped in battery saver, fewer layers in balanced.
  */
 fun Modifier.softShadow(radius: Dp, color: Color, spread: Dp = 18.dp, dy: Dp = 8.dp, alpha: Float = .35f): Modifier =
     this.drawWithCache {
         val w = size.width
         val h = size.height
-        if (w < 2f || h < 2f) {
+        val steps = when (Prefs.perf) { 0 -> 0; 1 -> 4; else -> 7 }
+        if (w < 2f || h < 2f || steps == 0) {
             onDrawBehind { }
         } else {
             val r = minOf(radius.toPx(), minOf(w, h) / 2f)
             val hole = Path().apply { addRoundRect(RoundRect(0f, 0f, w, h, CornerRadius(r))) }
             val sp = spread.toPx()
             val off = dy.toPx()
-            val steps = 7
             onDrawBehind {
                 clipPath(hole, ClipOp.Difference) {
                     for (k in 1..steps) {
@@ -84,7 +84,7 @@ fun Modifier.softShadow(radius: Dp, color: Color, spread: Dp = 18.dp, dy: Dp = 8
         }
     }
 
-/** Frosted glass panel: low-alpha translucent fill, top-lit rim, soft outside shadow, specular sheen. */
+/** Frosted glass panel: low-alpha fill, top-lit rim, soft outside shadow, specular sheen. */
 fun Modifier.glass(radius: Dp): Modifier {
     val shape = RoundedCornerShape(radius)
     return this
@@ -93,6 +93,7 @@ fun Modifier.glass(radius: Dp): Modifier {
         .background(GlassFill)
         .border(1.dp, GlassRim, shape)
         .drawWithCache {
+            val full = Prefs.perf > 0
             val sheen = Brush.verticalGradient(
                 listOf(Color.White.copy(alpha = .10f), Color.Transparent), endY = size.height * .35f
             )
@@ -102,8 +103,10 @@ fun Modifier.glass(radius: Dp): Modifier {
             )
             onDrawWithContent {
                 drawContent()
-                drawRect(sheen)
-                drawRect(spec)
+                if (full) {
+                    drawRect(sheen)
+                    drawRect(spec)
+                }
             }
         }
 }
@@ -132,25 +135,37 @@ fun Modifier.pressable(sxPressed: Float = .92f, syPressed: Float = .94f, onClick
 }
 
 /**
- * Translucent glass app tile. Everything is clipped to the tile shape, no hard-edged highlight shapes:
- * soft radial glare, thin top light line, coloured caustic at the bottom.
+ * App tile. Size, corner roundness, tint strength and style (glass / flat) come from the settings.
+ * Everything is clipped to the tile shape: soft glare, thin top light line, coloured caustic.
  * light = true skips the outer shadow, which keeps big grids cheap.
  */
 @Composable
-fun GlassTile(c1: Color, c2: Color, tileSize: Dp = 58.dp, light: Boolean = false, content: @Composable BoxScope.() -> Unit) {
-    val radius = tileSize * 0.34f
+fun GlassTile(
+    c1: Color, c2: Color,
+    tileSize: Dp = Prefs.iconSize.dp,
+    light: Boolean = false,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val radius = tileSize * Prefs.iconRound
     val shape = RoundedCornerShape(radius)
-    val fill = remember(c1, c2) { Brush.linearGradient(listOf(c1.copy(alpha = .55f), c2.copy(alpha = .32f))) }
-    val base = if (light) Modifier.size(tileSize)
+    val flat = Prefs.iconStyle == 1
+    val tint = Prefs.iconAlpha
+    val perf = Prefs.perf
+    val fill = remember(c1, c2, flat, tint) {
+        if (flat) Brush.linearGradient(listOf(c1, c2))
+        else Brush.linearGradient(listOf(c1.copy(alpha = .55f * tint), c2.copy(alpha = .32f * tint)))
+    }
+    val base = if (light || flat || perf == 0) Modifier.size(tileSize)
     else Modifier.size(tileSize).softShadow(radius, c2, spread = 10.dp, dy = 5.dp, alpha = .45f)
     Box(
         base
             .clip(shape)
             .background(fill)
-            .border(1.dp, TileRim, shape)
+            .then(if (flat) Modifier else Modifier.border(1.dp, TileRim, shape))
             .drawWithCache {
+                val fancy = !flat && perf > 0
                 val caustic = Brush.verticalGradient(
-                    listOf(Color.Transparent, c2.copy(alpha = .5f)), startY = size.height * .5f, endY = size.height
+                    listOf(Color.Transparent, c2.copy(alpha = .5f * tint)), startY = size.height * .5f, endY = size.height
                 )
                 val glare = Brush.radialGradient(
                     listOf(Color.White.copy(alpha = .36f), Color.Transparent),
@@ -161,12 +176,26 @@ fun GlassTile(c1: Color, c2: Color, tileSize: Dp = 58.dp, light: Boolean = false
                 )
                 onDrawWithContent {
                     drawContent()
-                    drawRect(caustic)
-                    drawRect(glare)
-                    drawRect(topLine)
+                    if (!flat) drawRect(caustic)
+                    if (fancy) {
+                        drawRect(glare)
+                        drawRect(topLine)
+                    }
                 }
             },
-        contentAlignment = Alignment.Center,
-        content = content
-    )
+        contentAlignment = Alignment.Center
+    ) {
+        // content is designed for a 58 dp tile and scaled to the chosen size
+        Box(
+            Modifier
+                .requiredSize(58.dp)
+                .graphicsLayer {
+                    val k = tileSize.toPx() / 58.dp.toPx()
+                    scaleX = k
+                    scaleY = k
+                },
+            contentAlignment = Alignment.Center,
+            content = content
+        )
+    }
 }
