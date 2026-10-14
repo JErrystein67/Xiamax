@@ -111,7 +111,7 @@ fun PageDots(count: Int, current: Int, onSelect: (Int) -> Unit) {
 
 class NewsItem(val title: String, val link: String)
 
-private const val FEED_URL = "https://feeds.bbci.co.uk/news/rss.xml" // change to any RSS feed you like
+private const val FEED_URL = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
 
 suspend fun fetchNews(): List<NewsItem> = withContext(Dispatchers.IO) {
     try {
