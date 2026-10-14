@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -119,7 +120,7 @@ fun HomeScreen(activity: Activity? = null) {
     val shadeDy = remember { floatArrayOf(0f) }
     val shadeOpen by remember { derivedStateOf { shade > 0.001f } }
 
-    fun animateShade(t: Float) {
+    fn animateShade(t: Float) {
         shadeJob[0]?.cancel()
         shadeJob[0] = scope.launch {
             animate(shade, t, 0f, spring(dampingRatio = .9f, stiffness = 280f)) { v, _ -> shade = v }
