@@ -57,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,10 +71,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlin.math.sin
 
-private enum class IslandState { Idle, Music, Full, Call, Note }
+private enum class IslandState { Idle, Music, Full, Call, Note, Charge }
 
 @Composable
-fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp) {
+fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp, shadowOn: Boolean = true) {
     val note = MediaHub.note
     var lastNote by remember { mutableStateOf<Note?>(null) }
     LaunchedEffect(note) { if (note != null) lastNote = note }
@@ -88,12 +89,14 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp)
         note != null && note.isCall -> IslandState.Call
         note != null -> IslandState.Note
         expanded && MediaHub.active -> IslandState.Full
+        ChargeHub.banner -> IslandState.Charge
         MediaHub.active -> IslandState.Music
         else -> IslandState.Idle
     }
     val sz = when (st) {
         IslandState.Idle -> if (Prefs.hideIdle) Triple(0.dp, 0.dp, 0.dp) else Triple(126.dp, 36.dp, 18.dp)
         IslandState.Music -> Triple(214.dp, 36.dp, 18.dp)
+        IslandState.Charge -> Triple(214.dp, 36.dp, 18.dp)
         IslandState.Full -> Triple(358.dp, 222.dp, 36.dp)
         IslandState.Call -> Triple(358.dp, 96.dp, 38.dp)
         IslandState.Note -> Triple(344.dp, 76.dp, 32.dp)
@@ -109,7 +112,7 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp)
         Modifier
             .padding(top = topPad)
             .size(w, h)
-            .shadow(16.dp, shape, ambientColor = Color.Black, spotColor = Pal.violet.copy(alpha = .6f))
+            .then(if (shadowOn) Modifier.softShadow(r, Pal.violet, 16.dp, 6.dp, .5f) else Modifier)
             .clip(shape)
             .background(Brush.linearGradient(listOf(Color(0xA32C245E), Color(0xB8080616))))
             .border(
@@ -146,6 +149,7 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp)
             }
     ) {
         Layer(st == IslandState.Music) { CompactMusic() }
+        Layer(st == IslandState.Charge) { ChargeCompact() }
         Layer(st == IslandState.Full) { FullPlayer { onExpand(false) } }
         Layer(st == IslandState.Call) { lastNote?.let { CallCard(it) } }
         Layer(st == IslandState.Note) { lastNote?.let { NoteCard(it) } }
@@ -360,5 +364,26 @@ private fun NoteCard(n: Note) {
             Text(n.title, color = Pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(n.text, color = Pal.ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+private fun ChargeCompact() {
+    val tr = rememberInfiniteTransition(label = "chg")
+    val pulse by tr.animateFloat(.55f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "p")
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Canvas(Modifier.size(18.dp)) {
+            val s = size.minDimension / 24f
+            val p = Path().apply {
+                moveTo(13f * s, 2f * s); lineTo(5f * s, 13.5f * s); lineTo(11f * s, 13.5f * s)
+                lineTo(10f * s, 22f * s); lineTo(19f * s, 10f * s); lineTo(13f * s, 10f * s); close()
+            }
+            drawPath(p, Pal.mint.copy(alpha = pulse))
+        }
+        Text("${ChargeHub.level}%", color = Pal.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }

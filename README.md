@@ -6,7 +6,9 @@ Native Kotlin + Jetpack Compose. No WebView.
 - Liquid Glass UI, glass app tiles, drifting wallpaper (pauses after 25 s idle)
 - Dynamic Island: real now-playing + controls, notification banners, incoming-call card, spring animated
 - Always-on island over all apps (optional, in Island settings)
-- Real apps launched from tiles, swipe-up app drawer with every installed app + search
+- App drawer: swipe up on any page (or tap the apps button in the dock), follows your finger, kinetic scrolling, live search. Charging pill on the island when you plug in.
+- Real apps launched from tiles. Paged 4x6 glass app grid with glass page dots, home page with widgets, -1 screen (news cards from an RSS feed, set FEED_URL in Pages.kt)
+- Pull down on the left half of the top edge: Notification Center. Right half: Control Center (Wi-Fi/Bluetooth open system panels, real flashlight, brightness and volume sliders)
 - Island settings: permissions, always on, hide when idle, banners, calls, position over the camera, battery
 
 ## First run

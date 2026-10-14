@@ -15,11 +15,17 @@ import android.service.notification.StatusBarNotification
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationManagerCompat
 
 data class Note(val key: String, val title: String, val text: String, val isCall: Boolean, val open: PendingIntent?)
+
+class NotifItem(
+    val key: String, val pkg: String, val app: String, val title: String, val text: String,
+    val whenMs: Long, val open: PendingIntent?, val clearable: Boolean
+)
 
 object Signals {
     var home by mutableIntStateOf(0)
@@ -30,11 +36,20 @@ object Signals {
 class MediaListener : NotificationListenerService() {
     override fun onCreate() { super.onCreate(); Prefs.init(applicationContext) }
     override fun onListenerConnected() {
+        MediaHub.service = this
         MediaHub.start(applicationContext)
+        MediaHub.refreshNotifs()
         OverlayControl.apply(applicationContext)
     }
-    override fun onNotificationPosted(sbn: StatusBarNotification) { MediaHub.onPosted(applicationContext, sbn) }
-    override fun onNotificationRemoved(sbn: StatusBarNotification) { MediaHub.onRemoved(sbn) }
+    override fun onListenerDisconnected() { MediaHub.service = null }
+    override fun onNotificationPosted(sbn: StatusBarNotification) {
+        MediaHub.onPosted(applicationContext, sbn)
+        MediaHub.refreshNotifs()
+    }
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        MediaHub.onRemoved(sbn)
+        MediaHub.refreshNotifs()
+    }
 }
 
 object MediaHub {
@@ -127,6 +142,39 @@ object MediaHub {
         controller?.transportControls?.seekTo(v)
         posMs = v
         stamp = SystemClock.elapsedRealtime()
+    }
+
+    val notifs = mutableStateListOf<NotifItem>()
+    var service: NotificationListenerService? = null
+
+    private fun toItem(s: NotificationListenerService, sbn: StatusBarNotification): NotifItem? {
+        if (sbn.packageName == s.packageName) return null
+        val n = sbn.notification
+        if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return null
+        if (n.category == Notification.CATEGORY_TRANSPORT) return null
+        val title = n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: return null
+        val text = n.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        val pm = s.packageManager
+        val app = try { pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString() } catch (e: Exception) { sbn.packageName }
+        return NotifItem(sbn.key, sbn.packageName, app, title, text, sbn.postTime, n.contentIntent, sbn.isClearable)
+    }
+
+    fun refreshNotifs() {
+        val s = service ?: return
+        val list = try { s.activeNotifications } catch (e: Exception) { null } ?: return
+        val items = list.mapNotNull { toItem(s, it) }.sortedByDescending { it.whenMs }
+        notifs.clear()
+        notifs.addAll(items)
+    }
+
+    fun dismiss(key: String) {
+        try { service?.cancelNotification(key) } catch (e: Exception) { }
+        notifs.removeAll { it.key == key }
+    }
+
+    fun dismissAll() {
+        try { service?.cancelAllNotifications() } catch (e: Exception) { }
+        notifs.clear()
     }
 
     fun onPosted(ctx: Context, sbn: StatusBarNotification) {

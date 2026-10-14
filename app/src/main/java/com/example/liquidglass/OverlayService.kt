@@ -86,6 +86,7 @@ class OverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner, ViewM
     override fun onCreate() {
         super.onCreate()
         Prefs.init(this)
+        ChargeHub.start(this)
         ssc.performAttach()
         ssc.performRestore(null)
         registry.currentState = Lifecycle.State.CREATED
@@ -204,5 +205,5 @@ fun OverlayIsland(maxW: Dp) {
     // collapse by itself so the window shrinks back and stops covering the app below
     LaunchedEffect(expanded) { if (expanded) { delay(10_000); expanded = false } }
     LaunchedEffect(MediaHub.active) { if (!MediaHub.active) expanded = false }
-    Island(expanded, { expanded = it }, 0.dp, maxW)
+    Island(expanded, { expanded = it }, 0.dp, maxW, shadowOn = false)
 }

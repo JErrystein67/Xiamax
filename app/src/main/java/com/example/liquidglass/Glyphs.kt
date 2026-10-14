@@ -26,7 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-enum class Glyph { Instagram, Facebook, YouTube, WhatsApp, Spotify, Camera, Settings, Phone, Messages }
+enum class Glyph { Instagram, Facebook, YouTube, WhatsApp, Spotify, Camera, Settings, Phone, Messages, Apps }
 
 @Composable
 fun GlyphIcon(g: Glyph) {
@@ -77,6 +77,11 @@ private fun DrawScope.drawGlyph(g: Glyph) {
             drawRoundRect(w, Offset(4 * s, 7.5f * s), Size(16 * s, 12 * s), CornerRadius(3.5f * s), style = st)
             drawCircle(w, 3.2f * s, Offset(12 * s, 13.5f * s), style = st)
             drawLine(w, Offset(9.5f * s, 5f * s), Offset(14.5f * s, 5f * s), strokeWidth = 1.8f * s, cap = StrokeCap.Round)
+        }
+        Glyph.Apps -> {
+            for (i in 0..2) for (j in 0..2) {
+                drawCircle(w, 2.0f * s, Offset((5 + 7 * i) * s, (5 + 7 * j) * s))
+            }
         }
         else -> Unit
     }

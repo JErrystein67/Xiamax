@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -43,16 +42,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -75,7 +67,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -106,6 +98,8 @@ import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
 
+private val LabelShadow = Shadow(Color.Black.copy(alpha = .35f), Offset(0f, 1f), 3f)
+
 @Composable
 fun HomeScreen() {
     val ctx = LocalContext.current
@@ -116,28 +110,52 @@ fun HomeScreen() {
     var touch by remember { mutableLongStateOf(0L) }
     var calm by remember { mutableStateOf(false) }
 
-    // drawer position: 1 = closed (below the screen), 0 = fully open. It follows the finger.
-    var frac by remember { mutableFloatStateOf(1f) }
-    val jobHolder = remember { arrayOfNulls<Job>(1) }
-    val lastDy = remember { floatArrayOf(0f) }
-    val drawerOpen by remember { derivedStateOf { frac < 0.98f } }
-    val fullyOpen by remember { derivedStateOf { frac <= 0.001f } }
+    // pull-down panels: shade 0 = closed, 1 = open. Side 0 = notifications (left), 1 = control center (right).
+    var shade by remember { mutableFloatStateOf(0f) }
+    var shadeSide by remember { mutableIntStateOf(0) }
+    val shadeJob = remember { arrayOfNulls<Job>(1) }
+    val shadeDy = remember { floatArrayOf(0f) }
+    val shadeOpen by remember { derivedStateOf { shade > 0.001f } }
 
-    fun animateDrawer(target: Float) {
-        jobHolder[0]?.cancel()
-        jobHolder[0] = scope.launch {
-            animate(frac, target, 0f, spring(dampingRatio = .9f, stiffness = 260f)) { v, _ -> frac = v }
+    fun animateShade(t: Float) {
+        shadeJob[0]?.cancel()
+        shadeJob[0] = scope.launch {
+            animate(shade, t, 0f, spring(dampingRatio = .9f, stiffness = 280f)) { v, _ -> shade = v }
         }
     }
-    fun dragStart() { jobHolder[0]?.cancel(); lastDy[0] = 0f }
-    fun settle() {
-        val t = when {
-            lastDy[0] < -6f -> 0f
-            lastDy[0] > 6f -> 1f
-            frac < .6f -> 0f
-            else -> 1f
+    fun settleShade() {
+        animateShade(
+            when {
+                shadeDy[0] > 6f -> 1f
+                shadeDy[0] < -6f -> 0f
+                shade > .4f -> 1f
+                else -> 0f
+            }
+        )
+    }
+
+    // app drawer: 1 = closed (below the screen), 0 = fully open. It follows the finger.
+    var frac by remember { mutableFloatStateOf(1f) }
+    val drawerJob = remember { arrayOfNulls<Job>(1) }
+    val drawerDy = remember { floatArrayOf(0f) }
+    val drawerOpen by remember { derivedStateOf { frac < 0.98f } }
+    val drawerFull by remember { derivedStateOf { frac <= 0.001f } }
+
+    fun animateDrawer(t: Float) {
+        drawerJob[0]?.cancel()
+        drawerJob[0] = scope.launch {
+            animate(frac, t, 0f, spring(dampingRatio = .9f, stiffness = 260f)) { v, _ -> frac = v }
         }
-        animateDrawer(t)
+    }
+    fun drawerSettle() {
+        animateDrawer(
+            when {
+                drawerDy[0] < -6f -> 0f
+                drawerDy[0] > 6f -> 1f
+                frac < .6f -> 0f
+                else -> 1f
+            }
+        )
     }
 
     // refresh app list when apps are installed / removed
@@ -158,27 +176,35 @@ fun HomeScreen() {
         value = withContext(Dispatchers.Default) { loadApps(ctx) }
     }
 
+    val appPages = remember(apps) { apps.chunked(24) }
+    val pageCount = 2 + maxOf(1, appPages.size) // -1 screen, home, app pages
+    val pagerState = rememberPagerState(initialPage = 1) { pageCount }
+
     // battery saver: wallpaper drift pauses after 25 s without touch
     LaunchedEffect(touch) { calm = false; delay(25_000); calm = true }
     var lastHome by remember { mutableIntStateOf(Signals.home) }
     LaunchedEffect(Signals.home) {
         if (Signals.home != lastHome) {
             lastHome = Signals.home
-            animateDrawer(1f); expanded = false; settingsOpen = false
+            animateShade(0f); animateDrawer(1f); expanded = false; settingsOpen = false
+            pagerState.animateScrollToPage(1)
         }
     }
     LaunchedEffect(MediaHub.active) { if (!MediaHub.active) expanded = false }
-    BackHandler(enabled = settingsOpen || drawerOpen || expanded) {
+    BackHandler(enabled = settingsOpen || drawerOpen || shadeOpen || expanded || pagerState.currentPage != 1) {
         when {
             settingsOpen -> { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
             drawerOpen -> animateDrawer(1f)
-            else -> expanded = false
+            shadeOpen -> animateShade(0f)
+            expanded -> expanded = false
+            else -> scope.launch { pagerState.animateScrollToPage(1) }
         }
     }
 
     val d = LocalDensity.current
     val barPx = maxOf(WindowInsets.statusBars.getTop(d), WindowInsets.displayCutout.getTop(d))
-    val topPad = maxOf(6.dp, (with(d) { barPx.toDp() } - 36.dp) / 2)
+    val barDp = with(d) { barPx.toDp() }
+    val topPad = maxOf(6.dp, (barDp - 36.dp) / 2)
 
     val brandApps = remember(apps) { brands.mapNotNull { b -> apps.firstOrNull { it.pkg in b.pkgs } } }
     val favs = remember(apps) {
@@ -202,83 +228,63 @@ fun HomeScreen() {
     ) {
         val maxW = maxWidth - 24.dp
         val hPx = constraints.maxHeight.toFloat()
-        Wallpaper(!calm && !drawerOpen && Prefs.wallAnim)
+        val panelH = maxHeight * .84f
+        val panelPx = hPx * .84f
+        Wallpaper(!calm && !shadeOpen && !drawerOpen && Prefs.wallAnim)
 
-        // ---- home content ----
+        // ---- pages + page dots + dock ----
         Column(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     val k = 1f - frac
-                    alpha = 1f - .5f * k
-                    scaleX = 1f - .05f * k
+                    alpha = 1f - .4f * shade - .5f * k
+                    scaleX = 1f - .04f * shade - .05f * k
                     scaleY = scaleX
                 }
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, top = 56.dp, bottom = 8.dp)
-                .pointerInput(fullyOpen) {
-                    if (!fullyOpen) {
+                .padding(top = 56.dp, bottom = 6.dp)
+                .pointerInput(drawerFull) {
+                    // swipe up anywhere on the pages to pull the app drawer up with your finger
+                    if (!drawerFull) {
                         detectVerticalDragGestures(
-                            onDragStart = { dragStart() },
-                            onDragEnd = { settle() },
-                            onDragCancel = { settle() },
+                            onDragStart = { drawerJob[0]?.cancel(); drawerDy[0] = 0f },
+                            onDragEnd = { drawerSettle() },
+                            onDragCancel = { drawerSettle() },
                             onVerticalDrag = { change, dy ->
                                 change.consume()
-                                lastDy[0] = dy
+                                drawerDy[0] = dy
                                 frac = (frac + dy / hPx).coerceIn(0f, 1f)
                             }
                         )
                     }
                 }
         ) {
-            Row(Modifier.fillMaxWidth().height(168.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                ClockCard(Modifier.weight(1.55f).fillMaxHeight())
-                BatteryCard(Modifier.weight(1f).fillMaxHeight())
-            }
-            Spacer(Modifier.height(14.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = 120.dp)
-                    .glass(RoundedCornerShape(30.dp))
-                    .padding(vertical = 18.dp, horizontal = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                favs.chunked(4).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        row.forEach { AppItemTile(it) }
-                        repeat(4 - row.size) { Spacer(Modifier.width(66.dp)) }
-                    }
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                beyondViewportPageCount = 1
+            ) { page ->
+                when (page) {
+                    0 -> DiscoverPage()
+                    1 -> HomePage(favs) { settingsOpen = true }
+                    else -> AppPage(appPages.getOrNull(page - 2) ?: emptyList())
                 }
             }
-            Spacer(Modifier.weight(1f))
-            if (!MediaHub.hasAccess) {
-                Box(
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .pressable { settingsOpen = true }
-                        .glass(RoundedCornerShape(22.dp))
-                        .padding(horizontal = 18.dp, vertical = 10.dp)
-                ) {
-                    Text("Set up the Dynamic Island", color = Pal.ink, fontSize = 13.sp)
-                }
-            }
-            Box(
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .width(80.dp)
-                    .height(28.dp)
-                    .pressable { animateDrawer(0f) },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .45f)))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                PageDots(pageCount, pagerState.currentPage) { i -> scope.launch { pagerState.animateScrollToPage(i) } }
             }
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(38.dp)).padding(vertical = 12.dp),
+                Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth()
+                    .glass(38.dp)
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 dock.forEach { s -> AppTile(null, s.c1, s.c2, s.intent) { GlyphIcon(s.glyph) } }
+                AppsButton { animateDrawer(0f) }
             }
         }
 
@@ -291,14 +297,65 @@ fun HomeScreen() {
                     alpha = if (frac >= 1f) 0f else 1f
                 }
         ) {
-            Drawer(
+            AppDrawer(
                 apps = apps,
-                onDragStart = { dragStart() },
-                onDrag = { dy -> lastDy[0] = dy; frac = (frac + dy / hPx).coerceIn(0f, 1f) },
-                onDragEnd = { settle() },
-                onClose = { animateDrawer(1f) },
-                onSettings = { settingsOpen = true }
+                onDragStart = { drawerJob[0]?.cancel(); drawerDy[0] = 0f },
+                onDrag = { dy -> drawerDy[0] = dy; frac = (frac + dy / hPx).coerceIn(0f, 1f) },
+                onDragEnd = { drawerSettle() },
+                onClose = { animateDrawer(1f) }
             )
+        }
+
+        // ---- top edge: pull down on the left half for notifications, right half for the control center ----
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(barDp + 36.dp)
+                .align(Alignment.TopCenter)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { o ->
+                            shadeJob[0]?.cancel()
+                            shadeSide = if (o.x < size.width / 2f) 0 else 1
+                            shadeDy[0] = 0f
+                        },
+                        onDragEnd = { settleShade() },
+                        onDragCancel = { settleShade() },
+                        onVerticalDrag = { change, dy ->
+                            change.consume()
+                            shadeDy[0] = dy
+                            shade = (shade + dy / panelPx).coerceIn(0f, 1f)
+                        }
+                    )
+                }
+        )
+
+        if (shadeOpen) {
+            Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = shade }
+                        .background(Color.Black.copy(alpha = .45f))
+                        .pointerInput(Unit) { detectTapGestures { animateShade(0f) } }
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(panelH)
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer { translationY = -(1f - shade) * size.height }
+                ) {
+                    val ds = { shadeJob[0]?.cancel(); shadeDy[0] = 0f }
+                    val dr = { dy: Float -> shadeDy[0] = dy; shade = (shade + dy / panelPx).coerceIn(0f, 1f) }
+                    val de = { settleShade() }
+                    if (shadeSide == 0) {
+                        NotificationCenter(onOpenSetup = { animateShade(0f); settingsOpen = true }, onDragStart = ds, onDrag = dr, onDragEnd = de)
+                    } else {
+                        ControlCenter(onOpenIslandSettings = { animateShade(0f); settingsOpen = true }, onDragStart = ds, onDrag = dr, onDragEnd = de)
+                    }
+                }
+            }
         }
 
         // ---- island (above everything). Hidden here when the always-on overlay is showing it. ----
@@ -317,6 +374,45 @@ fun HomeScreen() {
             exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(180))
         ) {
             IslandSettings { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
+        }
+    }
+}
+
+@Composable
+private fun HomePage(favs: List<AppItem>, onSetup: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 10.dp)) {
+        Row(Modifier.fillMaxWidth().height(168.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            ClockCard(Modifier.weight(1.55f).fillMaxHeight())
+            BatteryCard(Modifier.weight(1f).fillMaxHeight())
+        }
+        Spacer(Modifier.height(14.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 120.dp)
+                .glass(30.dp)
+                .padding(vertical = 18.dp, horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            favs.chunked(4).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    row.forEach { AppItemTile(it) }
+                    repeat(4 - row.size) { Spacer(Modifier.width(72.dp)) }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (!MediaHub.hasAccess) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .pressable { onSetup() }
+                        .glass(22.dp)
+                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                ) {
+                    Text("Set up the Dynamic Island", color = Pal.ink, fontSize = 13.sp)
+                }
+            }
         }
     }
 }
@@ -371,10 +467,16 @@ private fun ClockCard(modifier: Modifier) {
     val is24 = DateFormat.is24HourFormat(ctx)
     val time = remember(now, is24) { SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(Date(now)) }
     val date = remember(now) { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date(now)) }
-    Column(modifier.glass(RoundedCornerShape(30.dp)).padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
+    Column(modifier.glass(30.dp).padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Column {
-            Text(time, color = Pal.ink, fontSize = 60.sp, fontWeight = FontWeight.ExtraLight, letterSpacing = (-2).sp, maxLines = 1)
-            Text(date, color = Pal.ink2, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                time, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Light, letterSpacing = (-1.5).sp, maxLines = 1,
+                style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = .25f), Offset(0f, 2f), 6f))
+            )
+            Text(
+                date, color = Color.White.copy(alpha = .8f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = TextStyle(shadow = LabelShadow)
+            )
         }
         // weather is a placeholder for now (needs a data source)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -383,15 +485,17 @@ private fun ClockCard(modifier: Modifier) {
                     .background(Brush.radialGradient(listOf(Color(0xFFFFF3C4), Pal.peach)))
             )
             Spacer(Modifier.width(10.dp))
-            Text("18°", color = Pal.ink, fontSize = 26.sp, fontWeight = FontWeight.Light)
+            Text("18°", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
             Spacer(Modifier.width(8.dp))
-            Text("Partly cloudy", color = Pal.ink2, fontSize = 13.sp, maxLines = 1)
+            Text("Partly cloudy", color = Color.White.copy(alpha = .75f), fontSize = 13.sp, maxLines = 1)
         }
     }
 }
 
+class BatteryInfo(val level: Int, val charging: Boolean)
+
 @Composable
-private fun BatteryCard(modifier: Modifier) {
+fun rememberBattery(): BatteryInfo {
     val ctx = LocalContext.current
     var level by remember { mutableIntStateOf(100) }
     var charging by remember { mutableStateOf(false) }
@@ -410,8 +514,14 @@ private fun BatteryCard(modifier: Modifier) {
         read(ContextCompat.registerReceiver(ctx, r, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED))
         onDispose { ctx.unregisterReceiver(r) }
     }
-    val sweep by animateFloatAsState(level * 3.6f, tween(900), label = "batt")
-    Box(modifier.glass(RoundedCornerShape(30.dp)), contentAlignment = Alignment.Center) {
+    return BatteryInfo(level, charging)
+}
+
+@Composable
+private fun BatteryCard(modifier: Modifier) {
+    val b = rememberBattery()
+    val sweep by animateFloatAsState(b.level * 3.6f, tween(900), label = "batt")
+    Box(modifier.glass(30.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val sw = 9.dp.toPx()
@@ -421,8 +531,8 @@ private fun BatteryCard(modifier: Modifier) {
                 drawArc(Brush.linearGradient(listOf(Pal.mint, Pal.violet)), -90f, sweep, false, tl, sz, style = Stroke(sw, cap = StrokeCap.Round))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("$level", color = Pal.ink, fontSize = 26.sp, fontWeight = FontWeight.Light)
-                Text(if (charging) "Charging" else "Battery", color = Pal.ink2, fontSize = 11.sp)
+                Text("${b.level}", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
+                Text(if (b.charging) "Charging" else "Battery", color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
             }
         }
     }
@@ -450,8 +560,9 @@ fun AppTile(
         if (label != null) {
             Spacer(Modifier.height(6.dp))
             Text(
-                label, color = Pal.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center, modifier = Modifier.width(66.dp)
+                label, color = Color.White.copy(alpha = .88f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center, modifier = Modifier.width(72.dp),
+                style = TextStyle(shadow = LabelShadow)
             )
         }
     }
@@ -463,97 +574,18 @@ fun AppItemTile(a: AppItem, light: Boolean = false) {
     if (b != null) {
         AppTile(a.label, b.c1, b.c2, a.intent, light) { GlyphIcon(b.glyph) }
     } else {
-        AppTile(a.label, Color(0xFF9AA3E8), Color(0xFF4A5280), a.intent, light) {
-            a.icon?.let { Image(it, null, Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))) }
+        AppTile(a.label, a.c1, a.c2, a.intent, light) {
+            a.icon?.let {
+                // adaptive icons: foreground only, centered, no square behind it
+                Image(it, null, Modifier.size(if (a.adaptive) 50.dp else 36.dp))
+            }
         }
     }
 }
 
 @Composable
-private fun Drawer(
-    apps: List<AppItem>,
-    onDragStart: () -> Unit,
-    onDrag: (Float) -> Unit,
-    onDragEnd: () -> Unit,
-    onClose: () -> Unit,
-    onSettings: () -> Unit
-) {
-    var q by remember { mutableStateOf("") }
-    val list = remember(apps, q) {
-        if (q.isBlank()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
-    }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
-            .pointerInput(Unit) { detectTapGestures { } } // swallow touches so nothing behind reacts
-            .statusBarsPadding()
-            .padding(top = 28.dp)
-    ) {
-        // drag handle: pull down to close
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(28.dp)
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragStart = { onDragStart() },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() },
-                        onVerticalDrag = { change, dy -> change.consume(); onDrag(dy) }
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .4f)))
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(46.dp)
-                    .glass(RoundedCornerShape(23.dp))
-                    .padding(horizontal = 18.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                BasicTextField(
-                    value = q,
-                    onValueChange = { q = it },
-                    singleLine = true,
-                    textStyle = TextStyle(color = Pal.ink, fontSize = 16.sp),
-                    cursorBrush = SolidColor(Pal.mint),
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { inner ->
-                        Box {
-                            if (q.isEmpty()) Text("Search apps", color = Pal.ink2, fontSize = 16.sp)
-                            inner()
-                        }
-                    }
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier.size(46.dp).pressable(.88f, .88f, onSettings).clip(CircleShape).background(Color.White.copy(alpha = .12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.Settings, null, Modifier.size(22.dp), tint = Color.White)
-            }
-            Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier.size(46.dp).pressable(.88f, .88f, onClose).clip(CircleShape).background(Color.White.copy(alpha = .12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.KeyboardArrowDown, null, tint = Color.White)
-            }
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.weight(1f).navigationBarsPadding()
-        ) {
-            items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
-        }
+private fun AppsButton(onClick: () -> Unit) {
+    Column(Modifier.pressable(.9f, .94f, onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        GlassTile(Pal.violet, Pal.mint) { GlyphIcon(Glyph.Apps) }
     }
 }

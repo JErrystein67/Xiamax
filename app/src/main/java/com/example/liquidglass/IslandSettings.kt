@@ -1,6 +1,7 @@
 package com.example.liquidglass
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -57,7 +58,7 @@ fun Context.safeStart(i: Intent) {
 @Composable
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(26.dp)).padding(18.dp),
+        Modifier.fillMaxWidth().glass(26.dp).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(title, color = Pal.mint, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -145,6 +146,12 @@ fun IslandSettings(onClose: () -> Unit) {
     val notifOk = remember(tick) { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Signals.resume++ }
     val pkgUri = Uri.parse("package:${ctx.packageName}")
+    val roleManager = if (Build.VERSION.SDK_INT >= 29) ctx.getSystemService(RoleManager::class.java) else null
+    val isHome = remember(tick) {
+        try { roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true } catch (e: Exception) { false }
+    }
+    val writeOk = remember(tick) { Settings.System.canWrite(ctx) }
+    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { Signals.resume++ }
 
     Column(
         Modifier
@@ -179,6 +186,16 @@ fun IslandSettings(onClose: () -> Unit) {
                 PermRow("Show notifications", "Needed to keep the island running", notifOk) {
                     if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     else ctx.safeStart(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+                }
+                PermRow("Default launcher", "Use Liquid Glass as your home screen", isHome) {
+                    try {
+                        roleLauncher.launch(roleManager!!.createRequestRoleIntent(RoleManager.ROLE_HOME))
+                    } catch (e: Exception) {
+                        ctx.safeStart(Intent(Settings.ACTION_HOME_SETTINGS))
+                    }
+                }
+                PermRow("Change system settings", "Lets the Control Center set brightness", writeOk) {
+                    ctx.safeStart(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, pkgUri))
                 }
                 if (!listenerOk) {
                     Text(
