@@ -120,7 +120,7 @@ fun HomeScreen(activity: Activity? = null) {
     val shadeDy = remember { floatArrayOf(0f) }
     val shadeOpen by remember { derivedStateOf { shade > 0.001f } }
 
-    fn animateShade(t: Float) {
+    fun animateShade(t: Float) {
         shadeJob[0]?.cancel()
         shadeJob[0] = scope.launch {
             animate(shade, t, 0f, spring(dampingRatio = .9f, stiffness = 280f)) { v, _ -> shade = v }
