@@ -1,5 +1,6 @@
 package com.example.liquidglass
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context

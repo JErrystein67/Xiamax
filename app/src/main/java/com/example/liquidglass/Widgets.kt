@@ -236,7 +236,7 @@ private fun WidgetCard(id: Int, edit: Boolean) {
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, wDp.toInt())
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hDp.toInt())
                     }
-                    v.updateAppWidgetSize(options, wDp.toInt(), hDp.toInt(), wDp.toInt(), hDp.toInt())
+                    (v as? android.appwidget.AppWidgetHostView)?.updateAppWidgetSize(options, wDp.toInt(), hDp.toInt(), wDp.toInt(), hDp.toInt())
                 } catch (e: Exception) { }
             }
         )
