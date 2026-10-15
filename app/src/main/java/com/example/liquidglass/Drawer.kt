@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -38,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -58,18 +62,12 @@ fun AppDrawer(
 ) {
     var q by remember { mutableStateOf("") }
     val list = remember(apps, q) {
-        val query = q.trim().lowercase()
-        if (query.isBlank()) {
-            apps
-        } else {
-            apps.filter { it.label.lowercase().contains(query) }
-        }
+        if (q.isBlank()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
     }
-
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0x7A0B0920), Color(0x8A0B0920))))
             .pointerInput(Unit) { detectTapGestures { } } // swallow touches so nothing behind reacts
             .statusBarsPadding()
             .padding(top = 28.dp)
@@ -133,14 +131,32 @@ fun AppDrawer(
                 Icon(Icons.Filled.KeyboardArrowDown, null, tint = Color.White)
             }
         }
+        val gridState = rememberLazyGridState()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(4),
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.weight(1f).navigationBarsPadding()
+            modifier = Modifier.fillMaxSize().navigationBarsPadding()
         ) {
             items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
+        }
+        // Slim, draggable-looking scroll thumb on the right edge, like a phone system drawer.
+        Canvas(Modifier.align(Alignment.CenterEnd).fillMaxSize().padding(end = 3.dp, top = 8.dp, bottom = 8.dp)) {
+            val total = gridState.layoutInfo.totalItemsCount
+            val visible = gridState.layoutInfo.visibleItemsInfo.size
+            if (total > visible && total > 0) {
+                val track = size.height
+                val thumbH = (track * visible / total).coerceAtLeast(28.dp.toPx())
+                val maxScroll = (total - visible).coerceAtLeast(1)
+                val first = gridState.firstVisibleItemIndex.toFloat() / maxScroll
+                val y = (track - thumbH) * first.coerceIn(0f, 1f)
+                drawLine(Color.White.copy(alpha = .12f), Offset(size.width - 2.dp.toPx(), 0f), Offset(size.width - 2.dp.toPx(), track), 3.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = .72f), Offset(size.width - 2.dp.toPx(), y), Offset(size.width - 2.dp.toPx(), y + thumbH), 3.dp.toPx(), cap = StrokeCap.Round)
+            }
+        }
         }
     }
 }

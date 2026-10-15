@@ -138,7 +138,13 @@ fun Island(expanded: Boolean, onExpand: (Boolean) -> Unit, topPad: Dp, maxW: Dp,
             .pointerInput(st) {
                 detectTapGestures(onTap = {
                     when (st) {
-                        IslandState.Music -> onExpand(true)
+                        IslandState.Music -> {
+                            when {
+                                it.x < size.width * .32f -> MediaHub.prev()
+                                it.x > size.width * .68f -> MediaHub.next()
+                                else -> onExpand(true)
+                            }
+                        }
                         IslandState.Call, IslandState.Note -> {
                             try { lastNote?.open?.send() } catch (e: Exception) { }
                         }

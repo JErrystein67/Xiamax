@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -265,6 +264,16 @@ fun HomeScreen(activity: Activity? = null) {
                     }
                 }
         ) {
+            LaunchedEffect(pagerState.currentPage) {
+                if (pagerState.currentPage == 0) {
+                    // The left-most page acts as the Google-app shortcut. Return the launcher
+                    // pager to Home first, so coming back from Google lands on the Home screen.
+                    pagerState.animateScrollToPage(1)
+                    val google = ctx.packageManager.getLaunchIntentForPackage("com.google.android.googlequicksearchbox")
+                        ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com"))
+                    try { ctx.startActivity(google) } catch (_: Exception) { }
+                }
+            }
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
