@@ -39,9 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,7 +51,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,6 +79,7 @@ object WidgetHub {
         if (::host.isInitialized) return
         val app = ctx.applicationContext
         host = AppWidgetHost(app, HOST_ID)
+        try { host.startListening() } catch (e: Exception) { }
         mgr = AppWidgetManager.getInstance(app)
         val p = app.getSharedPreferences("widgets", Context.MODE_PRIVATE)
         sp = p
@@ -201,20 +199,42 @@ fun WidgetsPage(onAdd: () -> Unit) {
 private fun WidgetCard(id: Int, edit: Boolean) {
     val info = remember(id) { WidgetHub.mgr.getAppWidgetInfo(id) }
     if (info == null) {
-        // the app that provided it was removed
         LaunchedEffect(id) { WidgetHub.remove(id) }
         return
     }
-    val density = LocalDensity.current.density
-    val hDp = (info.minHeight / density).coerceIn(90f, 380f)
-    BoxWithConstraints(Modifier.fillMaxWidth().height(hDp.dp).glass(24.dp).clip(RoundedCornerShape(24.dp))) {
+    val hDp = if (info.minHeight > 0) info.minHeight.toFloat().coerceIn(90f, 400f) else 150f
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(hDp.dp)
+            .glass(24.dp)
+            .clip(RoundedCornerShape(24.dp))
+    ) {
         val wDp = maxWidth.value
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { c -> WidgetHub.host.createView(c, id, info) },
+            factory = { c ->
+                try {
+                    WidgetHub.host.createView(c, id, info)
+                } catch (e: Exception) {
+                    android.widget.TextView(c).apply {
+                        text = "Error loading widget"
+                        setTextColor(android.graphics.Color.WHITE)
+                    }
+                }
+            },
             update = { v ->
                 @Suppress("DEPRECATION")
-                v.updateAppWidgetSize(Bundle(), wDp.toInt(), hDp.toInt(), wDp.toInt(), hDp.toInt())
+                try {
+                    val options = Bundle().apply {
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, wDp.toInt())
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, hDp.toInt())
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, wDp.toInt())
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hDp.toInt())
+                    }
+                    v.updateAppWidgetSize(options, wDp.toInt(), hDp.toInt(), wDp.toInt(), hDp.toInt())
+                } catch (e: Exception) { }
             }
         )
         if (edit) {
