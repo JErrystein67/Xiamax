@@ -47,10 +47,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Full app list. Slides up with the finger (see HomeScreen), vertical list scrolls with normal
- * Android fling physics, search filters as you type.
- */
 @Composable
 fun AppDrawer(
     apps: List<AppItem>,
@@ -62,17 +58,17 @@ fun AppDrawer(
 ) {
     var q by remember { mutableStateOf("") }
     val list = remember(apps, q) {
-        if (q.isBlank()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
+        val query = q.trim().lowercase()
+        if (query.isBlank()) apps else apps.filter { it.label.lowercase().contains(query) }
     }
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0x7A0B0920), Color(0x8A0B0920))))
-            .pointerInput(Unit) { detectTapGestures { } } // swallow touches so nothing behind reacts
+            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
+            .pointerInput(Unit) { detectTapGestures { } }
             .statusBarsPadding()
             .padding(top = 28.dp)
     ) {
-        // drag handle: pull down to close
         Box(
             Modifier
                 .fillMaxWidth()
@@ -133,30 +129,34 @@ fun AppDrawer(
         }
         val gridState = rememberLazyGridState()
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyVerticalGrid(
-            state = gridState,
-            columns = GridCells.Fixed(4),
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.fillMaxSize().navigationBarsPadding()
-        ) {
-            items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
-        }
-        // Slim, draggable-looking scroll thumb on the right edge, like a phone system drawer.
-        Canvas(Modifier.align(Alignment.CenterEnd).fillMaxSize().padding(end = 3.dp, top = 8.dp, bottom = 8.dp)) {
-            val total = gridState.layoutInfo.totalItemsCount
-            val visible = gridState.layoutInfo.visibleItemsInfo.size
-            if (total > visible && total > 0) {
-                val track = size.height
-                val thumbH = (track * visible / total).coerceAtLeast(28.dp.toPx())
-                val maxScroll = (total - visible).coerceAtLeast(1)
-                val first = gridState.firstVisibleItemIndex.toFloat() / maxScroll
-                val y = (track - thumbH) * first.coerceIn(0f, 1f)
-                drawLine(Color.White.copy(alpha = .12f), Offset(size.width - 2.dp.toPx(), 0f), Offset(size.width - 2.dp.toPx(), track), 3.dp.toPx(), cap = StrokeCap.Round)
-                drawLine(Color.White.copy(alpha = .72f), Offset(size.width - 2.dp.toPx(), y), Offset(size.width - 2.dp.toPx(), y + thumbH), 3.dp.toPx(), cap = StrokeCap.Round)
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(4),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxSize().navigationBarsPadding()
+            ) {
+                items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
             }
-        }
+            
+            // Stabilizovaný scrollbar ("nudle") – pevný výpočet poměru zabraňuje poskakování a glitčům
+            Canvas(Modifier.align(Alignment.CenterEnd).fillMaxSize().padding(end = 3.dp, top = 8.dp, bottom = 8.dp)) {
+                val total = gridState.layoutInfo.totalItemsCount
+                val visible = gridState.layoutInfo.visibleItemsInfo.size
+                if (total > 0 && visible > 0 && total > visible) {
+                    val track = size.height
+                    val ratio = visible.toFloat() / total.toFloat()
+                    val thumbH = (track * ratio).coerceIn(36.dp.toPx(), track)
+                    val maxScroll = (total - visible).coerceAtLeast(1)
+                    val scrollProgress = (gridState.firstVisibleItemIndex.toFloat() + 
+                        (gridState.firstVisibleItemScrollOffset.toFloat() / 120f).coerceIn(0f, 1f)) / maxScroll.toFloat()
+                    val y = (track - thumbH) * scrollProgress.coerceIn(0f, 1f)
+
+                    drawLine(Color.White.copy(alpha = 0.06f), Offset(size.width - 2.dp.toPx(), 0f), Offset(size.width - 2.dp.toPx(), track), 3.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(Color.White.copy(alpha = 0.70f), Offset(size.width - 2.dp.toPx(), y), Offset(size.width - 2.dp.toPx(), y + thumbH), 3.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
         }
     }
 }

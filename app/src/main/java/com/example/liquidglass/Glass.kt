@@ -34,33 +34,33 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-// Performance levels (Prefs.perf): 0 battery saver, 1 balanced, 2 full.
-// Brushes are created once, not on every frame.
+// iOS Liquid Glass gradients – čistější, průsvitnější a luxusnější vzhled
 private val GlassFill = Brush.linearGradient(
-    listOf(Color.White.copy(alpha = .18f), Color.White.copy(alpha = .06f), Color.White.copy(alpha = .12f))
+    listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .05f), Color.White.copy(alpha = .14f))
 )
 private val GlassRim = Brush.verticalGradient(
-    0f to Color.White.copy(alpha = .50f),
-    .30f to Color.White.copy(alpha = .12f),
-    .75f to Color.White.copy(alpha = .05f),
-    1f to Color.White.copy(alpha = .20f)
+    0f to Color.White.copy(alpha = .65f),
+    .25f to Color.White.copy(alpha = .15f),
+    .75f to Color.White.copy(alpha = .04f),
+    1f to Color.White.copy(alpha = .30f)
 )
 private val TileRim = Brush.verticalGradient(
-    0f to Color.White.copy(alpha = .65f),
-    .35f to Color.White.copy(alpha = .14f),
-    .8f to Color.White.copy(alpha = .06f),
-    1f to Color.White.copy(alpha = .28f)
+    0f to Color.White.copy(alpha = .75f),
+    .30f to Color.White.copy(alpha = .18f),
+    .8f to Color.White.copy(alpha = .05f),
+    1f to Color.White.copy(alpha = .35f)
 )
 
 /**
- * Soft drop shadow drawn ONLY outside the shape (Android's elevation shadow shows through translucent
- * glass as a hard-edged box). Skipped in battery saver, fewer layers in balanced.
+ * Optimalizovaný stín: na slabších telefonech (perf == 0 nebo 1) dramaticky snižuje počet vrstev (steps),
+ * čímž šetří baterii a zajišťuje absolutní plynulost animací.
  */
-fun Modifier.softShadow(radius: Dp, color: Color, spread: Dp = 18.dp, dy: Dp = 8.dp, alpha: Float = .35f): Modifier =
+fun Modifier.softShadow(radius: Dp, color: Color, spread: Dp = 16.dp, dy: Dp = 6.dp, alpha: Float = .30f): Modifier =
     this.drawWithCache {
         val w = size.width
         val h = size.height
-        val steps = when (Prefs.perf) { 0 -> 0; 1 -> 4; else -> 7 }
+        // Optimalizace pro slabší zařízení: méně výpočetně náročných vrstev stínu
+        val steps = when (Prefs.perf) { 0 -> 0; 1 -> 2; else -> 4 }
         if (w < 2f || h < 2f || steps == 0) {
             onDrawBehind { }
         } else {
@@ -84,22 +84,22 @@ fun Modifier.softShadow(radius: Dp, color: Color, spread: Dp = 18.dp, dy: Dp = 8
         }
     }
 
-/** Frosted glass panel: low-alpha fill, top-lit rim, soft outside shadow, specular sheen. */
+/** Vylepšený frost-glass panel ve stylu iOS Liquid Glass. */
 fun Modifier.glass(radius: Dp): Modifier {
     val shape = RoundedCornerShape(radius)
     return this
-        .softShadow(radius, Color(0xFF05001F), spread = 10.dp, dy = 4.dp, alpha = .40f)
+        .softShadow(radius, Color(0xFF030014), spread = 8.dp, dy = 3.dp, alpha = .35f)
         .clip(shape)
         .background(GlassFill)
         .border(1.dp, GlassRim, shape)
         .drawWithCache {
             val full = Prefs.perf > 0
             val sheen = Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = .10f), Color.Transparent), endY = size.height * .35f
+                listOf(Color.White.copy(alpha = .12f), Color.Transparent), endY = size.height * .30f
             )
             val spec = Brush.radialGradient(
-                listOf(Color.White.copy(alpha = .14f), Color.Transparent),
-                center = Offset(size.width * .12f, 0f), radius = size.width * .7f
+                listOf(Color.White.copy(alpha = .18f), Color.Transparent),
+                center = Offset(size.width * .15f, 0f), radius = size.width * .65f
             )
             onDrawWithContent {
                 drawContent()
@@ -111,8 +111,8 @@ fun Modifier.glass(radius: Dp): Modifier {
         }
 }
 
-/** Press = liquid squash that springs back. Reads the animation in the graphics layer, so no recomposition. */
-fun Modifier.pressable(sxPressed: Float = .92f, syPressed: Float = .94f, onClick: () -> Unit): Modifier = composed {
+/** Hladká fluidní odezva na dotek (iOS spring physics). */
+fun Modifier.pressable(sxPressed: Float = .93f, syPressed: Float = .95f, onClick: () -> Unit): Modifier = composed {
     val p = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val click = rememberUpdatedState(onClick)
@@ -125,20 +125,15 @@ fun Modifier.pressable(sxPressed: Float = .92f, syPressed: Float = .94f, onClick
         .pointerInput(Unit) {
             detectTapGestures(
                 onPress = {
-                    scope.launch { p.animateTo(1f, spring(dampingRatio = .85f, stiffness = 600f)) }
+                    scope.launch { p.animateTo(1f, spring(dampingRatio = .8f, stiffness = 700f)) }
                     tryAwaitRelease()
-                    scope.launch { p.animateTo(0f, spring(dampingRatio = .85f, stiffness = 600f)) }
+                    scope.launch { p.animateTo(0f, spring(dampingRatio = .8f, stiffness = 700f)) }
                 },
                 onTap = { click.value() }
             )
         }
 }
 
-/**
- * App tile. Size, corner roundness, tint strength and style (glass / flat) come from the settings.
- * Everything is clipped to the tile shape: soft glare, thin top light line, coloured caustic.
- * light = true skips the outer shadow, which keeps big grids cheap.
- */
 @Composable
 fun GlassTile(
     c1: Color, c2: Color,
@@ -153,26 +148,26 @@ fun GlassTile(
     val perf = Prefs.perf
     val fill = remember(c1, c2, flat, tint) {
         if (flat) Brush.linearGradient(listOf(c1, c2))
-        else Brush.linearGradient(listOf(c1.copy(alpha = .55f * tint), c2.copy(alpha = .32f * tint)))
+        else Brush.linearGradient(listOf(c1.copy(alpha = .60f * tint), c2.copy(alpha = .35f * tint)))
     }
     val base = if (light || flat || perf == 0) Modifier.size(tileSize)
-    else Modifier.size(tileSize).softShadow(radius, c2, spread = 10.dp, dy = 5.dp, alpha = .45f)
+    else Modifier.size(tileSize).softShadow(radius, c2, spread = 8.dp, dy = 4.dp, alpha = .35f)
     Box(
         base
             .clip(shape)
             .background(fill)
             .then(if (flat) Modifier else Modifier.border(1.dp, TileRim, shape))
             .drawWithCache {
-                val fancy = !flat && perf > 0
+                val fancy = !flat && perf > 1 // Vykreslovat náročné odlesky jen při plném výkonu
                 val caustic = Brush.verticalGradient(
-                    listOf(Color.Transparent, c2.copy(alpha = .5f * tint)), startY = size.height * .5f, endY = size.height
+                    listOf(Color.Transparent, c2.copy(alpha = .45f * tint)), startY = size.height * .5f, endY = size.height
                 )
                 val glare = Brush.radialGradient(
-                    listOf(Color.White.copy(alpha = .36f), Color.Transparent),
-                    center = Offset(size.width * .3f, size.height * .04f), radius = size.width * .9f
+                    listOf(Color.White.copy(alpha = .40f), Color.Transparent),
+                    center = Offset(size.width * .3f, size.height * .03f), radius = size.width * .8f
                 )
                 val topLine = Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = .30f), Color.Transparent), endY = size.height * .22f
+                    listOf(Color.White.copy(alpha = .35f), Color.Transparent), endY = size.height * .2f
                 )
                 onDrawWithContent {
                     drawContent()
@@ -185,7 +180,6 @@ fun GlassTile(
             },
         contentAlignment = Alignment.Center
     ) {
-        // content is designed for a 58 dp tile and scaled to the chosen size
         Box(
             Modifier
                 .requiredSize(58.dp)
