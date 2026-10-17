@@ -84,7 +84,7 @@ private fun pickTint(a: Color?, b: Color?): Color {
     return neutral
 }
 
-private fun darker(c: Color) = Color(c.red * .55f, c.green * .55f, c.blue * .62f)
+fun darker(c: Color) = Color(c.red * .55f, c.green * .55f, c.blue * .62f)
 
 /** Every launchable app on the phone, with real labels and icons. */
 fun loadApps(ctx: Context, withFull: Boolean = false): List<AppItem> {
@@ -133,5 +133,15 @@ fun launchApp(ctx: Context, view: View, intent: Intent, r: Rect?) {
         ctx.startActivity(intent, opts)
     } catch (e: Exception) {
         // app missing or blocked: ignore
+    }
+}
+
+/** Colours for an icon tile: the app's own override, else the custom colours, else the automatic ones. */
+fun tintPair(pkg: String, auto1: Color, auto2: Color): Pair<Color, Color> {
+    val o = Prefs.appColors[pkg]
+    return when {
+        o != null -> Color(o).let { it to darker(it) }
+        Prefs.iconColorMode == 1 -> Color(Prefs.iconColor1) to Color(Prefs.iconColor2)
+        else -> auto1 to auto2
     }
 }

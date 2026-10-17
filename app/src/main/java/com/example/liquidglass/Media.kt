@@ -30,6 +30,7 @@ class NotifItem(
 object Signals {
     var home by mutableIntStateOf(0)
     var resume by mutableIntStateOf(0)
+    var colorTarget by mutableStateOf<String?>(null) // app whose colour sheet is open
 }
 
 /** Needs "Notification access" (granted once in system settings). Feeds the island. */

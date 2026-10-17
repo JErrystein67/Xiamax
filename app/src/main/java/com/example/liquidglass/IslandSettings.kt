@@ -225,6 +225,8 @@ fun IslandSettings(onClose: () -> Unit) {
         try { roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true } catch (e: Exception) { false }
     }
     var hue by remember { mutableFloatStateOf(270f) }
+    var h1 by remember { mutableFloatStateOf(260f) }
+    var h2 by remember { mutableFloatStateOf(170f) }
 
     Column(
         Modifier
@@ -309,6 +311,19 @@ fun IslandSettings(onClose: () -> Unit) {
                     SliderRow("Glass tint", Prefs.iconAlpha, .3f..1f, "${(Prefs.iconAlpha * 100).toInt()}%") { Prefs.iconAlpha = it }
                 }
                 SwitchRow("Show names under icons", null, Prefs.iconLabels) { Prefs.iconLabels = it; Prefs.save() }
+                ChoiceRow("Icon colors", listOf("Automatic", "Custom"), Prefs.iconColorMode) { Prefs.iconColorMode = it; Prefs.save() }
+                if (Prefs.iconColorMode == 1) {
+                    Text("Presets", color = Pal.ink, fontSize = 16.sp)
+                    PairRow(iconPairs) { a, b -> Prefs.iconColor1 = a; Prefs.iconColor2 = b; Prefs.save() }
+                    Text("Top color", color = Pal.ink, fontSize = 16.sp)
+                    SwatchRow(iconSwatches, Prefs.iconColor1) { Prefs.iconColor1 = it; Prefs.save() }
+                    SliderRow("Top hue", h1, 0f..360f, "${h1.toInt()}°") { h1 = it; Prefs.iconColor1 = Color.hsv(it, .7f, .95f).toArgb() }
+                    Text("Bottom color", color = Pal.ink, fontSize = 16.sp)
+                    SwatchRow(iconSwatches, Prefs.iconColor2) { Prefs.iconColor2 = it; Prefs.save() }
+                    SliderRow("Bottom hue", h2, 0f..360f, "${h2.toInt()}°") { h2 = it; Prefs.iconColor2 = Color.hsv(it, .7f, .75f).toArgb() }
+                }
+                Caption("Long-press any app icon to give just that app its own color.")
+                if (Prefs.appColors.isNotEmpty()) PillButton("Reset single-app colors") { Prefs.clearAppColors() }
             }
 
             Section("WALLPAPER") {
@@ -361,6 +376,27 @@ fun IslandSettings(onClose: () -> Unit) {
                 Caption("If swipe gestures or Recents act oddly with a third-party launcher, look for a Recents or home screen option in the phone's Settings under Home screen.")
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private val iconPairs = listOf(
+    0xFF7C5CFF to 0xFF2DE2C8, 0xFFFF6BA6 to 0xFFFFB86B, 0xFF2F7BFF to 0xFF2DE2C8,
+    0xFFFF3B3B to 0xFFB81D3A, 0xFF22D86E to 0xFF0B6B4A, 0xFF8E98C4 to 0xFF3D4466
+).map { it.first.toInt() to it.second.toInt() }
+
+@Composable
+private fun PairRow(pairs: List<Pair<Int, Int>>, onSelect: (Int, Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        pairs.forEach { (a, b) ->
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .pressable(.85f, .85f) { onSelect(a, b) }
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(Color(a), Color(b))))
+                    .border(1.dp, Color.White.copy(alpha = .3f), CircleShape)
+            )
         }
     }
 }

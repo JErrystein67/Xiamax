@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -31,6 +32,10 @@ object Prefs {
     var iconRound by mutableFloatStateOf(.34f)      // corner radius as a fraction of the size
     var iconAlpha by mutableFloatStateOf(1f)        // glass tint strength
     var iconLabels by mutableStateOf(true)
+    var iconColorMode by mutableIntStateOf(0)       // 0 automatic (each icon's own colours), 1 custom
+    var iconColor1 by mutableIntStateOf(0xFF7C5CFF.toInt())
+    var iconColor2 by mutableIntStateOf(0xFF2DE2C8.toInt())
+    val appColors = mutableStateMapOf<String, Int>()  // per-app colour overrides
 
     // wallpaper
     var wallMode by mutableIntStateOf(1)            // 0 system wallpaper, 1 gradient, 2 photo
@@ -62,6 +67,13 @@ object Prefs {
         iconRound = p.getFloat("iconRound", .34f)
         iconAlpha = p.getFloat("iconAlpha", 1f)
         iconLabels = p.getBoolean("iconLabels", true)
+        iconColorMode = p.getInt("iconColorMode", 0)
+        iconColor1 = p.getInt("iconColor1", 0xFF7C5CFF.toInt())
+        iconColor2 = p.getInt("iconColor2", 0xFF2DE2C8.toInt())
+        p.getString("appColors", "")?.split(";")?.forEach { e ->
+            val kv = e.split("=")
+            if (kv.size == 2) kv[1].toIntOrNull()?.let { appColors[kv[0]] = it }
+        }
         wallMode = p.getInt("wallMode", 1)
         wallPalette = p.getInt("wallPalette", 0)
         wallAnim = p.getBoolean("wallAnim", false)
@@ -88,6 +100,10 @@ object Prefs {
             ?.putFloat("iconRound", iconRound)
             ?.putFloat("iconAlpha", iconAlpha)
             ?.putBoolean("iconLabels", iconLabels)
+            ?.putInt("iconColorMode", iconColorMode)
+            ?.putInt("iconColor1", iconColor1)
+            ?.putInt("iconColor2", iconColor2)
+            ?.putString("appColors", appColors.entries.joinToString(";") { it.key + "=" + it.value })
             ?.putInt("wallMode", wallMode)
             ?.putInt("wallPalette", wallPalette)
             ?.putBoolean("wallAnim", wallAnim)
@@ -98,5 +114,15 @@ object Prefs {
             ?.putInt("perf", perf)
             ?.putBoolean("firstRun", firstRun)
             ?.apply()
+    }
+
+    fun setAppColor(pkg: String, color: Int?) {
+        if (color == null) appColors.remove(pkg) else appColors[pkg] = color
+        save()
+    }
+
+    fun clearAppColors() {
+        appColors.clear()
+        save()
     }
 }

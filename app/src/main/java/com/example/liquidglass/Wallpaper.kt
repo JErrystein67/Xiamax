@@ -1,6 +1,7 @@
 package com.example.liquidglass
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
@@ -129,4 +130,36 @@ fun saveWallpaper(ctx: Context, uri: Uri): Boolean = try {
 
 fun clearWallpaper(ctx: Context) {
     try { File(ctx.filesDir, "wall.jpg").delete() } catch (e: Exception) { }
+}
+
+/** Heavily blurred screen-sized copy of the photo wallpaper, only built for photo wallpapers. */
+fun loadBackdrop(ctx: Context, rootW: Int, rootH: Int): Backdrop? {
+    val f = File(ctx.filesDir, "wall.jpg")
+    if (!f.exists() || rootW <= 0 || rootH <= 0) return null
+    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(f.path, o)
+    var s = 1
+    while (o.outWidth / (s * 2) >= 360 && o.outHeight / (s * 2) >= 360) s *= 2
+    val src = BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = s }) ?: return null
+    // centre-crop to the screen shape, exactly like ContentScale.Crop does for the wallpaper itself
+    val ar = rootW.toFloat() / rootH
+    var cw = src.width
+    var ch = (cw / ar).toInt()
+    if (ch > src.height) { ch = src.height; cw = (ch * ar).toInt() }
+    val crop = Bitmap.createBitmap(src, (src.width - cw) / 2, (src.height - ch) / 2, cw.coerceAtLeast(1), ch.coerceAtLeast(1))
+    // shrink to a tiny image: when it is stretched back up it is a very strong, very cheap blur
+    val tw = 48
+    val th = (tw / ar).toInt().coerceAtLeast(8)
+    val tiny = Bitmap.createScaledBitmap(crop, tw, th, true)
+    return Backdrop(tiny.asImageBitmap(), rootW.toFloat(), rootH.toFloat())
+}
+
+@Composable
+fun rememberBackdrop(wPx: Int, hPx: Int): Backdrop? {
+    val ctx = LocalContext.current
+    val on = Prefs.wallMode == 2 && Prefs.perf > 0
+    val bd by produceState<Backdrop?>(null, on, Prefs.wallVersion, wPx, hPx) {
+        value = if (!on) null else withContext(Dispatchers.IO) { loadBackdrop(ctx, wPx, hPx) }
+    }
+    return bd
 }

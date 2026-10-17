@@ -49,6 +49,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -195,8 +196,9 @@ fun HomeScreen(activity: Activity? = null) {
         }
     }
     LaunchedEffect(MediaHub.active) { if (!MediaHub.active) expanded = false }
-    BackHandler(enabled = pickerOpen || settingsOpen || drawerOpen || shadeOpen || expanded || pagerState.currentPage != 1) {
+    BackHandler(enabled = Signals.colorTarget != null || pickerOpen || settingsOpen || drawerOpen || shadeOpen || expanded || pagerState.currentPage != 1) {
         when {
+            Signals.colorTarget != null -> Signals.colorTarget = null
             pickerOpen -> pickerOpen = false
             settingsOpen -> { settingsOpen = false; Prefs.firstRun = false; Prefs.save() }
             drawerOpen -> animateDrawer(1f)
@@ -231,6 +233,8 @@ fun HomeScreen(activity: Activity? = null) {
             }
     ) {
         val maxW = maxWidth - 24.dp
+        val backdrop = rememberBackdrop(constraints.maxWidth, constraints.maxHeight)
+        CompositionLocalProvider(LocalBackdrop provides backdrop) {
         val hPx = constraints.maxHeight.toFloat()
         val panelH = maxHeight * .84f
         val panelPx = hPx * .84f
@@ -272,7 +276,7 @@ fun HomeScreen(activity: Activity? = null) {
                     pagerState.animateScrollToPage(1)
                     val google = ctx.packageManager.getLaunchIntentForPackage("com.google.android.googlequicksearchbox")
                         ?: Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com"))
-                    try { ctx.startActivity(google) } catch (_: Exception) { }
+                    try { ctx.startActivity(google) } catch (e: Exception) { }
                 }
             }
             HorizontalPager(
@@ -298,7 +302,10 @@ fun HomeScreen(activity: Activity? = null) {
                     .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                dock.forEach { s -> AppTile(null, s.c1, s.c2, s.intent) { GlyphIcon(s.glyph) } }
+                dock.forEach { s ->
+                    val (d1, d2) = tintPair("", s.c1, s.c2)
+                    AppTile(null, d1, d2, s.intent) { GlyphIcon(s.glyph) }
+                }
                 AppsButton { animateDrawer(0f) }
             }
         }
@@ -398,6 +405,12 @@ fun HomeScreen(activity: Activity? = null) {
             exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(180))
         ) {
             WidgetPicker(activity) { pickerOpen = false }
+        }
+
+        val ct = Signals.colorTarget
+        if (ct != null) {
+            ColorSheet(ct, apps.firstOrNull { it.pkg == ct }?.label ?: ct) { Signals.colorTarget = null }
+        }
         }
     }
 }
@@ -541,18 +554,21 @@ fun AppTile(
     label: String?, c1: Color, c2: Color, intent: Intent,
     light: Boolean = false,
     raw: Boolean = false,
+    pkg: String? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
     val ctx = LocalContext.current
     val view = LocalView.current
     val coords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val open = {
+        val r = try { coords[0]?.takeIf { it.isAttached }?.boundsInWindow() } catch (e: Exception) { null }
+        launchApp(ctx, view, intent, r)
+    }
+    val base = Modifier.onGloballyPositioned { coords[0] = it }
     Column(
-        Modifier
-            .onGloballyPositioned { coords[0] = it }
-            .pressable(.9f, .94f) {
-                val r = try { coords[0]?.takeIf { it.isAttached }?.boundsInWindow() } catch (e: Exception) { null }
-                launchApp(ctx, view, intent, r)
-            },
+        // long-press an app icon to pick its own colour
+        if (pkg != null) base.pressableLong(.9f, .94f, { Signals.colorTarget = pkg }) { open() }
+        else base.pressable(.9f, .94f) { open() },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (raw) Box(Modifier.size(Prefs.iconSize.dp), contentAlignment = Alignment.Center, content = content)
@@ -573,16 +589,17 @@ fun AppItemTile(a: AppItem, light: Boolean = false) {
     if (Prefs.iconStyle == 2) {
         // the app's own icon, untouched
         val shape = RoundedCornerShape(Prefs.iconSize.dp * Prefs.iconRound)
-        AppTile(a.label, a.c1, a.c2, a.intent, light, raw = true) {
+        AppTile(a.label, a.c1, a.c2, a.intent, light, raw = true, pkg = a.pkg) {
             val img = a.full ?: a.icon
             if (img != null) Image(img, null, Modifier.fillMaxSize().clip(shape))
         }
     } else {
         val b = brandFor(a.pkg)
+        val (t1, t2) = tintPair(a.pkg, b?.c1 ?: a.c1, b?.c2 ?: a.c2)
         if (b != null) {
-            AppTile(a.label, b.c1, b.c2, a.intent, light) { GlyphIcon(b.glyph) }
+            AppTile(a.label, t1, t2, a.intent, light, pkg = a.pkg) { GlyphIcon(b.glyph) }
         } else {
-            AppTile(a.label, a.c1, a.c2, a.intent, light) {
+            AppTile(a.label, t1, t2, a.intent, light, pkg = a.pkg) {
                 a.icon?.let {
                     // adaptive icons: foreground only, centered, no square behind it
                     Image(it, null, Modifier.size(if (a.adaptive) 50.dp else 36.dp))

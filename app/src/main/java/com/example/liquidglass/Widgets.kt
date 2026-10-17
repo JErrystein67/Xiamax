@@ -228,7 +228,6 @@ private fun WidgetCard(id: Int, edit: Boolean) {
                 }
             },
             update = { v ->
-                @Suppress("DEPRECATION")
                 try {
                     val options = Bundle().apply {
                         putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, wDp.toInt())
