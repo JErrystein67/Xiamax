@@ -57,10 +57,29 @@ import kotlin.math.pow
 import kotlin.math.sign
 import kotlin.math.sin
 
+/*
+ * iOS "Liquid Glass" layer stack, bottom to top:
+ *   wallpaper / content
+ *   -> ambient shadow (outside the shape only, never behind the glass)
+ *   -> glass shell: frosted backdrop slice (photo wallpaper) + translucent fill
+ *   -> content plate: faint dark veil so text and glyphs stay readable on bright wallpapers
+ *   -> rim light: crisp specular on the top / left edges, soft ambient rim on bottom / right
+ *   -> content (text, icons)
+ *   -> surface light: top-lit sheen, corner glare, refraction band along the inner edge
+ *
+ * Performance (Prefs.perf): 0 = fill + rim only, 1 = + specular edges, sheen, glare, light shadow,
+ * 2 = + refraction bands, far-edge depth, full shadow. Every brush that does not depend on the size is a
+ * top-level constant; size-dependent ones are built inside drawWithCache, so nothing allocates while scrolling.
+ */
+
 // ------------------------------------------------------------------ squircle (iPhone icon shape)
+
+private val squircleCache = HashMap<String, Path>()
 
 /** Superellipse |x|^n + |y|^n = 1. n around 4-5 is the iPhone "continuous corner" look, n = 2 is a circle. */
 fun squirclePath(w: Float, h: Float, n: Float): Path {
+    val key = "${w.toInt()}x${h.toInt()}x${(n * 100).toInt()}"
+    squircleCache[key]?.let { return it }
     val p = Path()
     val steps = 160
     val a = w / 2f
@@ -75,6 +94,8 @@ fun squirclePath(w: Float, h: Float, n: Float): Path {
         if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
     }
     p.close()
+    if (squircleCache.size > 48) squircleCache.clear()
+    squircleCache[key] = p
     return p
 }
 
@@ -93,27 +114,37 @@ class Backdrop(val img: ImageBitmap, val rootW: Float, val rootH: Float)
 
 val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
 
-// ------------------------------------------------------------------ brushes (created once)
+// ------------------------------------------------------------------ constant brushes / colours (allocated once)
+
+private val ShadowColor = Color(0xFF030014)
+private val SatFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.5f) })
 
 private val GlassFill = Brush.linearGradient(
     listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .05f), Color.White.copy(alpha = .09f))
 )
 
-/**
- * The iOS 26 trick: light catches the top-left and bottom-right edges and dies out in between,
- * so the glass reads like a thick lens, not a flat outline.
- */
-private val LiquidRim = Brush.linearGradient(
-    0f to Color.White.copy(alpha = .95f),
-    .18f to Color.White.copy(alpha = .24f),
-    .50f to Color.White.copy(alpha = .05f),
-    .82f to Color.White.copy(alpha = .22f),
-    1f to Color.White.copy(alpha = .70f)
+/** Content plate: soft ambient contrast between the glass and whatever is drawn on it. */
+private val Plate = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = .04f),
+    1f to Color.Black.copy(alpha = .14f)
 )
 
 /**
- * Soft drop shadow drawn ONLY outside the shape (Android's elevation shadow shows through translucent
- * glass as a hard-edged box). Skipped in battery saver. shapePath lets squircle tiles cut the exact hole.
+ * Rim light as a lens catches it: strong on the top-left, nearly gone through the middle,
+ * a soft ambient return on the bottom-right.
+ */
+private val LiquidRim = Brush.linearGradient(
+    0f to Color.White.copy(alpha = .85f),
+    .20f to Color.White.copy(alpha = .22f),
+    .50f to Color.White.copy(alpha = .05f),
+    .85f to Color.White.copy(alpha = .14f),
+    1f to Color.White.copy(alpha = .34f)
+)
+
+/**
+ * Soft ambient shadow drawn ONLY outside the shape: the card's own geometry is cut out of it
+ * (ClipOp.Difference), so nothing dark ever sits behind translucent glass.
+ * shapePath lets squircle tiles cut the exact hole.
  */
 fun Modifier.softShadow(
     radius: Dp, color: Color,
@@ -123,7 +154,7 @@ fun Modifier.softShadow(
     this.drawWithCache {
         val w = size.width
         val h = size.height
-        val steps = when (Prefs.perf) { 0 -> 0; 1 -> 2; else -> 4 }
+        val steps = when (Prefs.perf) { 0 -> 0; 1 -> 2; else -> 5 }
         if (w < 2f || h < 2f || steps == 0) {
             onDrawBehind { }
         } else {
@@ -131,30 +162,19 @@ fun Modifier.softShadow(
             val hole = shapePath?.invoke(w, h) ?: Path().apply { addRoundRect(RoundRect(0f, 0f, w, h, CornerRadius(r))) }
             val sp = spread.toPx()
             val off = dy.toPx()
+            val layer = color.copy(alpha = alpha / steps)
             onDrawBehind {
                 clipPath(hole, ClipOp.Difference) {
                     for (k in 1..steps) {
                         val g = sp * k / steps
-                        drawRoundRect(
-                            color.copy(alpha = alpha / steps),
-                            Offset(-g, off - g),
-                            Size(w + 2 * g, h + 2 * g),
-                            CornerRadius(r + g)
-                        )
+                        drawRoundRect(layer, Offset(-g, off - g), Size(w + 2 * g, h + 2 * g), CornerRadius(r + g))
                     }
                 }
             }
         }
     }
 
-/**
- * iOS-style liquid glass panel:
- *  1. frosted, saturated slice of the blurred photo wallpaper behind it (photo wallpaper only)
- *  2. translucent fill
- *  3. bright diagonal rim light
- *  4. refraction band: soft light collecting just inside the edge
- *  5. dark inner edge on the far corner for depth, top sheen, specular glint
- */
+/** iOS-style liquid glass panel, see the layer stack at the top of this file. */
 fun Modifier.glass(radius: Dp): Modifier = composed {
     val bd = LocalBackdrop.current
     val pos = remember { FloatArray(2) }
@@ -171,13 +191,13 @@ fun Modifier.glass(radius: Dp): Modifier = composed {
                 }
             }
         }
-        .softShadow(radius, Color(0xFF030014), spread = 10.dp, dy = 4.dp, alpha = .34f)
+        .softShadow(radius, ShadowColor, spread = 12.dp, dy = 5.dp, alpha = .30f)
         .clip(shape)
+        // glass shell, layer 1: frosted slice of the photo wallpaper (only when a photo wallpaper is set)
         .drawWithCache {
             val b = bd
-            val sat = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.5f) })
             onDrawBehind {
-                val t = tick // redraw when the card moves, so the glass keeps showing the right part of the photo
+                val t = tick // redraw when the card moves, so it keeps showing the right part of the photo
                 if (b != null && t >= 0) {
                     val f = b.img.width / b.rootW
                     val sw = maxOf(1, (size.width * f).toInt())
@@ -189,55 +209,94 @@ fun Modifier.glass(radius: Dp): Modifier = composed {
                         srcOffset = IntOffset(sx, sy),
                         srcSize = IntSize(sw, sh),
                         dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                        colorFilter = sat,
+                        colorFilter = SatFilter,
                         filterQuality = FilterQuality.High
                     )
                 }
             }
         }
+        // glass shell, layer 2: translucent fill, then the content plate
         .background(GlassFill)
+        .background(Plate)
         .border(1.2.dp, LiquidRim, shape)
+        // surface light, drawn above the content
         .drawWithCache {
             val w = size.width
             val h = size.height
             val r = minOf(radius.toPx(), minOf(w, h) / 2f)
-            val rich = Prefs.perf > 0
-            val sheen = Brush.verticalGradient(listOf(Color.White.copy(alpha = .14f), Color.Transparent), endY = h * .30f)
-            val spec = Brush.radialGradient(
-                listOf(Color.White.copy(alpha = .20f), Color.Transparent),
-                center = Offset(w * .15f, 0f), radius = w * .65f
-            )
-            val farEdge = Brush.linearGradient(
+            val perf = Prefs.perf
+            val specular = perf >= 1
+            val rich = perf >= 2
+            val hair = 1.dp.toPx()
+            val edge = .75.dp.toPx()
+            val long = w > 2 * r + 4f && h > 2 * r + 4f
+
+            // crisp specular on top / left, soft ambient rim on bottom / right
+            val topHi = if (specular && long) Brush.horizontalGradient(
+                listOf(Color.White.copy(alpha = .80f), Color.White.copy(alpha = .30f)), startX = r, endX = w - r
+            ) else null
+            val leftHi = if (specular && long) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = .70f), Color.White.copy(alpha = .22f)), startY = r, endY = h - r
+            ) else null
+            val botLo = if (specular && long) Brush.horizontalGradient(
+                listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .24f)), startX = r, endX = w - r
+            ) else null
+            val rightLo = if (specular && long) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .22f)), startY = r, endY = h - r
+            ) else null
+
+            val sheen = if (specular) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = .13f), Color.Transparent), endY = h * .30f
+            ) else null
+            val glare = if (specular) Brush.radialGradient(
+                listOf(Color.White.copy(alpha = .20f), Color.Transparent), center = Offset(w * .15f, 0f), radius = w * .65f
+            ) else null
+            val accent = if (rich) Brush.radialGradient(
+                listOf(Color.White.copy(alpha = .08f), Color.Transparent), center = Offset(w * .92f, h), radius = w * .40f
+            ) else null
+            val farEdge = if (rich) Brush.linearGradient(
                 listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = .20f)),
                 start = Offset(0f, 0f), end = Offset(w, h)
-            )
+            ) else null
             val band = 2.dp.toPx()
-            val one = 1.dp.toPx()
+
             onDrawWithContent {
                 drawContent()
+                if (specular) {
+                    if (topHi != null && leftHi != null && botLo != null && rightLo != null) {
+                        drawLine(topHi, Offset(r, edge), Offset(w - r, edge), hair)
+                        drawLine(leftHi, Offset(edge, r), Offset(edge, h - r), hair)
+                        drawLine(botLo, Offset(r, h - edge), Offset(w - r, h - edge), hair)
+                        drawLine(rightLo, Offset(w - edge, r), Offset(w - edge, h - r), hair)
+                    }
+                    if (sheen != null) drawRect(sheen)
+                    if (glare != null) drawRect(glare)
+                }
                 if (rich) {
+                    // refraction band: light collecting just inside the edge, fading inwards
                     for (i in 0..2) {
-                        val inset = one * (1.5f + i * 2.5f)
+                        val inset = hair * (1.5f + i * 2.5f)
                         drawRoundRect(
-                            Color.White.copy(alpha = .14f - i * .045f),
+                            Color.White.copy(alpha = .13f - i * .04f),
                             Offset(inset, inset),
                             Size(w - 2 * inset, h - 2 * inset),
                             CornerRadius(maxOf(0f, r - inset)),
                             style = Stroke(band)
                         )
                     }
-                    drawRoundRect(
-                        farEdge, Offset(one, one), Size(w - 2 * one, h - 2 * one),
-                        CornerRadius(maxOf(0f, r - one)), style = Stroke(3 * one)
-                    )
-                    drawRect(sheen)
-                    drawRect(spec)
+                    if (farEdge != null) {
+                        drawRoundRect(
+                            farEdge, Offset(hair, hair), Size(w - 2 * hair, h - 2 * hair),
+                            CornerRadius(maxOf(0f, r - hair)), style = Stroke(3 * hair)
+                        )
+                    }
+                    if (accent != null) drawRect(accent)
                 }
             }
         }
 }
 
-// ------------------------------------------------------------------ press feedback
+// ------------------------------------------------------------------ press feedback (fluid spring, no recomposition)
 
 private fun Modifier.pressableImpl(sxPressed: Float, syPressed: Float, onLong: (() -> Unit)?, onClick: () -> Unit): Modifier = composed {
     val p = remember { Animatable(0f) }
@@ -246,6 +305,7 @@ private fun Modifier.pressableImpl(sxPressed: Float, syPressed: Float, onLong: (
     val long = rememberUpdatedState(onLong)
     val lp: ((Offset) -> Unit)? = onLong?.let { { _: Offset -> long.value?.invoke(); Unit } }
     this
+        // the scale is read inside the layer block, so the animation never triggers recomposition
         .graphicsLayer {
             val k = p.value
             scaleX = 1f + (sxPressed - 1f) * k
@@ -275,8 +335,8 @@ fun Modifier.pressableLong(sxPressed: Float = .93f, syPressed: Float = .95f, onL
 // ------------------------------------------------------------------ app tile
 
 /**
- * Squircle app tile with iOS-style glass: translucent colour, diagonal rim light, inner refraction band,
- * soft glare, colour caustic in the lower corner.
+ * Squircle app tile, same layer stack as a panel: translucent colour -> content plate behind the glyph ->
+ * rim light -> glyph -> surface light (glare, top light, inner refraction bands, colour caustic).
  * Size, roundness, tint strength and style (glass / flat) come from the settings.
  * light = true skips the outer shadow, which keeps big grids cheap.
  */
@@ -310,34 +370,37 @@ fun GlassTile(
             .drawWithCache {
                 val w = size.width
                 val h = size.height
-                val rich = !flat && perf > 0
-                val path = if (rich) squirclePath(w, h, n) else null
-                val caustic = Brush.radialGradient(
-                    listOf(c2.copy(alpha = .55f * tint), Color.Transparent),
-                    center = Offset(w * .85f, h * .95f), radius = w * .85f
-                )
-                val glare = Brush.radialGradient(
-                    listOf(Color.White.copy(alpha = .40f), Color.Transparent),
-                    center = Offset(w * .3f, h * .03f), radius = w * .8f
-                )
-                val topLine = Brush.verticalGradient(
+                val glass = !flat && perf > 0
+                val full = !flat && perf >= 2
+                val path = if (glass) squirclePath(w, h, n) else null
+                val caustic = if (!flat) Brush.radialGradient(
+                    listOf(c2.copy(alpha = .55f * tint), Color.Transparent), center = Offset(w * .85f, h * .95f), radius = w * .85f
+                ) else null
+                // plate: faint dark core behind the glyph
+                val plate = if (glass) Brush.radialGradient(
+                    listOf(Color.Black.copy(alpha = .14f), Color.Transparent), center = Offset(w / 2f, h / 2f), radius = w * .42f
+                ) else null
+                val glare = if (glass) Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = .40f), Color.Transparent), center = Offset(w * .3f, h * .03f), radius = w * .8f
+                ) else null
+                val topLine = if (glass) Brush.verticalGradient(
                     listOf(Color.White.copy(alpha = .32f), Color.Transparent), endY = h * .2f
-                )
+                ) else null
                 val glow = 1.5.dp.toPx()
                 val step = 2.2.dp.toPx()
+                val bands = if (full) 2 else 1
                 onDrawWithContent {
+                    if (plate != null) drawRect(plate)
                     drawContent()
-                    if (!flat) drawRect(caustic)
-                    if (rich) {
-                        drawRect(glare)
-                        drawRect(topLine)
-                        if (path != null) {
-                            for (i in 1..2) {
-                                val inset = i * step
-                                val sc = (w - 2 * inset) / w
-                                withTransform({ scale(sc, sc, Offset(w / 2f, h / 2f)) }) {
-                                    drawPath(path, Color.White.copy(alpha = .16f - i * .05f), style = Stroke(glow / sc))
-                                }
+                    if (caustic != null) drawRect(caustic)
+                    if (glare != null) drawRect(glare)
+                    if (topLine != null) drawRect(topLine)
+                    if (path != null) {
+                        for (i in 1..bands) {
+                            val inset = i * step
+                            val sc = (w - 2 * inset) / w
+                            withTransform({ scale(sc, sc, Offset(w / 2f, h / 2f)) }) {
+                                drawPath(path, Color.White.copy(alpha = .16f - i * .05f), style = Stroke(glow / sc))
                             }
                         }
                     }

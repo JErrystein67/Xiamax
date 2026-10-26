@@ -124,7 +124,7 @@ fun HomeScreen(activity: Activity? = null) {
     fun animateShade(t: Float) {
         shadeJob[0]?.cancel()
         shadeJob[0] = scope.launch {
-            animate(shade, t, 0f, spring(dampingRatio = .9f, stiffness = 280f)) { v, _ -> shade = v }
+            animate(shade, t, 0f, spring(dampingRatio = .85f, stiffness = 650f)) { v, _ -> shade = v }
         }
     }
     fun settleShade() {
@@ -148,7 +148,7 @@ fun HomeScreen(activity: Activity? = null) {
     fun animateDrawer(t: Float) {
         drawerJob[0]?.cancel()
         drawerJob[0] = scope.launch {
-            animate(frac, t, 0f, spring(dampingRatio = .9f, stiffness = 260f)) { v, _ -> frac = v }
+            animate(frac, t, 0f, spring(dampingRatio = .85f, stiffness = 650f)) { v, _ -> frac = v }
         }
     }
     fun drawerSettle() {
@@ -315,7 +315,7 @@ fun HomeScreen(activity: Activity? = null) {
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = frac * size.height
+                    translationY = frac.coerceIn(0f, 1f) * size.height
                     alpha = if (frac >= 1f) 0f else 1f
                 }
         ) {
@@ -367,7 +367,7 @@ fun HomeScreen(activity: Activity? = null) {
                         .fillMaxWidth()
                         .height(panelH)
                         .align(Alignment.TopCenter)
-                        .graphicsLayer { translationY = -(1f - shade) * size.height }
+                        .graphicsLayer { translationY = -(1f - shade.coerceIn(0f, 1f)) * size.height }
                 ) {
                     val ds = { shadeJob[0]?.cancel(); shadeDy[0] = 0f }
                     val dr = { dy: Float -> shadeDy[0] = dy; shade = (shade + dy / panelPx).coerceIn(0f, 1f) }

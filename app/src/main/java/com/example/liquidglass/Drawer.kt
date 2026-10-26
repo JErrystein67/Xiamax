@@ -1,5 +1,7 @@
 package com.example.liquidglass
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -140,21 +143,44 @@ fun AppDrawer(
                 items(list, key = { it.id }, contentType = { "app" }) { AppItemTile(it, light = true) }
             }
             
-            // Stabilizovaný scrollbar ("nudle") – pevný výpočet poměru zabraňuje poskakování a glitčům
-            Canvas(Modifier.align(Alignment.CenterEnd).fillMaxSize().padding(end = 3.dp, top = 8.dp, bottom = 8.dp)) {
-                val total = gridState.layoutInfo.totalItemsCount
-                val visible = gridState.layoutInfo.visibleItemsInfo.size
-                if (total > 0 && visible > 0 && total > visible) {
-                    val track = size.height
-                    val ratio = visible.toFloat() / total.toFloat()
-                    val thumbH = (track * ratio).coerceIn(36.dp.toPx(), track)
-                    val maxScroll = (total - visible).coerceAtLeast(1)
-                    val scrollProgress = (gridState.firstVisibleItemIndex.toFloat() + 
-                        (gridState.firstVisibleItemScrollOffset.toFloat() / 120f).coerceIn(0f, 1f)) / maxScroll.toFloat()
-                    val y = (track - thumbH) * scrollProgress.coerceIn(0f, 1f)
-
-                    drawLine(Color.White.copy(alpha = 0.06f), Offset(size.width - 2.dp.toPx(), 0f), Offset(size.width - 2.dp.toPx(), track), 3.dp.toPx(), cap = StrokeCap.Round)
-                    drawLine(Color.White.copy(alpha = 0.70f), Offset(size.width - 2.dp.toPx(), y), Offset(size.width - 2.dp.toPx(), y + thumbH), 3.dp.toPx(), cap = StrokeCap.Round)
+            // Scroll thumb. Everything is derived from stable values, so it never jumps:
+            //  - thumb height = viewport / content height, from the row count and one fixed row height
+            //    (not from how many items happen to be visible, which changes while flinging)
+            //  - thumb position = (first visible row * row stride + pixel offset inside that row) / max scroll,
+            //    so it follows the content pixel for pixel
+            val thumbAlpha = animateFloatAsState(
+                if (gridState.isScrollInProgress) 1f else 0f,
+                tween(if (gridState.isScrollInProgress) 80 else 450),
+                label = "thumb"
+            )
+            Canvas(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxSize()
+                    .padding(end = 3.dp, top = 8.dp, bottom = 8.dp)
+                    .graphicsLayer { alpha = thumbAlpha.value }
+            ) {
+                val info = gridState.layoutInfo
+                val first = info.visibleItemsInfo.firstOrNull()
+                val total = info.totalItemsCount
+                if (first != null && total > 0) {
+                    val cols = 4
+                    val rows = (total + cols - 1) / cols
+                    val gap = 18.dp.toPx()
+                    val stride = first.size.height + gap           // every tile has the same height
+                    val content = rows * stride - gap + 16.dp.toPx() + 40.dp.toPx() // + content padding top / bottom
+                    val viewport = info.viewportSize.height.toFloat()
+                    val maxScroll = content - viewport
+                    if (maxScroll > 1f) {
+                        val scrolled = (gridState.firstVisibleItemIndex / cols) * stride + gridState.firstVisibleItemScrollOffset
+                        val progress = (scrolled / maxScroll).coerceIn(0f, 1f)
+                        val track = size.height
+                        val thumbH = (track * (viewport / content)).coerceIn(36.dp.toPx(), track)
+                        val y = (track - thumbH) * progress
+                        val x = size.width - 2.dp.toPx()
+                        drawLine(Color.White.copy(alpha = 0.06f), Offset(x, 0f), Offset(x, track), 3.dp.toPx(), cap = StrokeCap.Round)
+                        drawLine(Color.White.copy(alpha = 0.70f), Offset(x, y), Offset(x, y + thumbH), 3.dp.toPx(), cap = StrokeCap.Round)
+                    }
                 }
             }
         }

@@ -2,13 +2,16 @@ package com.example.liquidglass
 
 import android.app.Activity
 import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Bundle
+import android.util.SizeF
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -198,6 +201,26 @@ fun WidgetsPage(onAdd: () -> Unit) {
     }
 }
 
+/** Tells the widget how much room it has. Sizes are dp. Android 12+ uses the SizeF API, older versions the min/max one. */
+@Suppress("DEPRECATION")
+private fun resizeHost(v: AppWidgetHostView, wDp: Int, hDp: Int) {
+    try {
+        if (Build.VERSION.SDK_INT >= 31) {
+            v.updateAppWidgetSize(Bundle(), listOf(SizeF(wDp.toFloat(), hDp.toFloat())))
+        } else {
+            val options = Bundle().apply {
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, wDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, hDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, wDp)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hDp)
+            }
+            v.updateAppWidgetSize(options, wDp, hDp, wDp, hDp)
+        }
+    } catch (e: Exception) {
+        // some widget providers misbehave while resizing; the widget keeps its previous size
+    }
+}
+
 @Composable
 private fun WidgetCard(id: Int, edit: Boolean) {
     val info = remember(id) { WidgetHub.mgr.getAppWidgetInfo(id) }
@@ -205,7 +228,10 @@ private fun WidgetCard(id: Int, edit: Boolean) {
         LaunchedEffect(id) { WidgetHub.remove(id) }
         return
     }
-    val hDp = if (info.minHeight > 0) info.minHeight.toFloat().coerceIn(90f, 400f) else 150f
+    // AppWidgetProviderInfo.minHeight is already in PIXELS (the framework resolves the dp value from the widget's XML),
+    // so it is converted to dp exactly once here. It is never multiplied by the density again.
+    val density = LocalDensity.current.density
+    val hDp = if (info.minHeight > 0) (info.minHeight / density).coerceIn(90f, 400f) else 150f
 
     BoxWithConstraints(
         Modifier
@@ -228,15 +254,8 @@ private fun WidgetCard(id: Int, edit: Boolean) {
                 }
             },
             update = { v ->
-                try {
-                    val options = Bundle().apply {
-                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, wDp.toInt())
-                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, hDp.toInt())
-                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, wDp.toInt())
-                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hDp.toInt())
-                    }
-                    (v as? android.appwidget.AppWidgetHostView)?.updateAppWidgetSize(options, wDp.toInt(), hDp.toInt(), wDp.toInt(), hDp.toInt())
-                } catch (e: Exception) { }
+                // the factory can return the error TextView, so check the type before resizing
+                (v as? AppWidgetHostView)?.let { resizeHost(it, wDp.toInt(), hDp.toInt()) }
             }
         )
         if (edit) {
