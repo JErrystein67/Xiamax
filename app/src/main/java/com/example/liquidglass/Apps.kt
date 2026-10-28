@@ -45,7 +45,8 @@ fun systemDock(): List<Sys> = listOf(
     Sys(Glyph.Messages, Color(0xFF3B82F6), Color(0xFF7C5CFF),
         Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MESSAGING)),
     Sys(Glyph.Camera, Color(0xFF9AA3C8), Color(0xFF3D4466), Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)),
-    Sys(Glyph.Settings, Color(0xFF8E98C4), Color(0xFF4A5280), Intent(Settings.ACTION_SETTINGS))
+    Sys(Glyph.Settings, Color(0xFF8E98C4), Color(0xFF4A5280),
+        Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER))
 )
 
 private fun render(d: Drawable, px: Int): Bitmap {
@@ -103,8 +104,13 @@ fun loadApps(ctx: Context, withFull: Boolean = false): List<AppItem> {
         var tint = neutral
         try {
             val d = ri.loadIcon(pm)
-            if (withFull) full = render(d, 144).asImageBitmap()
-            if (Build.VERSION.SDK_INT >= 26 && d is AdaptiveIconDrawable) {
+            if (withFull) {
+                // glossy / plain styles: the app's real icon
+                val b = render(d, 144)
+                full = b.asImageBitmap()
+                tint = pickTint(null, averageColor(b))
+            } else if (Build.VERSION.SDK_INT >= 26 && d is AdaptiveIconDrawable) {
+                // tinted glass style: only the foreground layer, tinted with the icon's own colours
                 val fg = d.foreground
                 val bg = d.background
                 val fgB = if (fg != null) render(fg, 128) else null
@@ -143,5 +149,25 @@ fun tintPair(pkg: String, auto1: Color, auto2: Color): Pair<Color, Color> {
         o != null -> Color(o).let { it to darker(it) }
         Prefs.iconColorMode == 1 -> Color(Prefs.iconColor1) to Color(Prefs.iconColor2)
         else -> auto1 to auto2
+    }
+}
+
+
+/** A dock slot: the phone's real default app for the job, with its real icon. */
+class DockItem(val label: String, val icon: ImageBitmap?, val glyph: Glyph, val c1: Color, val c2: Color, val intent: Intent)
+
+fun loadDock(ctx: Context): List<DockItem> {
+    val pm = ctx.packageManager
+    return systemDock().map { s ->
+        var icon: ImageBitmap? = null
+        var label = ""
+        try {
+            val ri = pm.resolveActivity(s.intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+            if (ri != null) {
+                icon = render(ri.loadIcon(pm), 144).asImageBitmap()
+                label = ri.loadLabel(pm).toString()
+            }
+        } catch (e: Exception) { }
+        DockItem(label, icon, s.glyph, s.c1, s.c2, s.intent)
     }
 }

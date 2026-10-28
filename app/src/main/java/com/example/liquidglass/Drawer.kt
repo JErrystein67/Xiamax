@@ -67,7 +67,7 @@ fun AppDrawer(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0xF2142823), Color(0xFA0F1E1A))))
             .pointerInput(Unit) { detectTapGestures { } }
             .statusBarsPadding()
             .padding(top = 28.dp)

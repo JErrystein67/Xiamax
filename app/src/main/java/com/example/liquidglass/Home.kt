@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -111,8 +112,6 @@ fun HomeScreen(activity: Activity? = null) {
     var settingsOpen by remember { mutableStateOf(Prefs.firstRun) }
     var pickerOpen by remember { mutableStateOf(false) }
     var pkgVer by remember { mutableIntStateOf(0) }
-    var touch by remember { mutableLongStateOf(0L) }
-    var calm by remember { mutableStateOf(false) }
 
     // pull-down panels: shade 0 = closed, 1 = open. Side 0 = notifications (left), 1 = control center (right).
     var shade by remember { mutableFloatStateOf(0f) }
@@ -176,17 +175,21 @@ fun HomeScreen(activity: Activity? = null) {
         ContextCompat.registerReceiver(ctx, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose { ctx.unregisterReceiver(r) }
     }
-    val wantFull = Prefs.iconStyle == 2
+    val wantFull = Prefs.iconStyle != 1
     val apps by produceState(emptyList<AppItem>(), pkgVer, wantFull) {
         value = withContext(Dispatchers.Default) { loadApps(ctx, wantFull) }
     }
 
-    val appPages = remember(apps) { apps.chunked(24) }
-    val pageCount = 3 + maxOf(1, appPages.size) // -1 screen, home, widgets, app pages
+    val brandApps = remember(apps) { brands.mapNotNull { b -> apps.firstOrNull { it.pkg in b.pkgs } } }
+    val favs = remember(apps) {
+        (brandApps + apps.filter { a -> a !in brandApps && brandFor(a.pkg) == null }).take(8)
+    }
+    val appPages = remember(apps, favs) { apps.filter { it !in favs }.chunked(24) }
+    val pageCount = 2 + maxOf(1, appPages.size) // smart page, home, app pages
     val pagerState = rememberPagerState(initialPage = 1) { pageCount }
 
-    // battery saver: wallpaper drift pauses after 25 s without touch
-    LaunchedEffect(touch) { calm = false; delay(25_000); calm = true }
+    // refresh weather + calendar whenever the launcher comes back
+    LaunchedEffect(Signals.resume) { WeatherHub.refresh(ctx); CalendarHub.refresh(ctx) }
     var lastHome by remember { mutableIntStateOf(Signals.home) }
     LaunchedEffect(Signals.home) {
         if (Signals.home != lastHome) {
@@ -213,24 +216,10 @@ fun HomeScreen(activity: Activity? = null) {
     val barDp = with(d) { barPx.toDp() }
     val topPad = maxOf(6.dp, (barDp - 36.dp) / 2)
 
-    val brandApps = remember(apps) { brands.mapNotNull { b -> apps.firstOrNull { it.pkg in b.pkgs } } }
-    val favs = remember(apps) {
-        (brandApps + apps.filter { a -> a !in brandApps && brandFor(a.pkg) == null }).take(8)
-    }
-    val dock = remember { systemDock() }
+    val dock by produceState(emptyList<DockItem>()) { value = withContext(Dispatchers.Default) { loadDock(ctx) } }
 
     BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial)
-                        val n = System.nanoTime()
-                        if (n - touch > 3_000_000_000L) touch = n
-                    }
-                }
-            }
+        Modifier.fillMaxSize()
     ) {
         val maxW = maxWidth - 24.dp
         val backdrop = rememberBackdrop(constraints.maxWidth, constraints.maxHeight)
@@ -238,7 +227,7 @@ fun HomeScreen(activity: Activity? = null) {
         val hPx = constraints.maxHeight.toFloat()
         val panelH = maxHeight * .84f
         val panelPx = hPx * .84f
-        WallpaperLayer(!calm && !shadeOpen && !drawerOpen)
+        WallpaperLayer()
 
         // ---- pages + page dots + dock ----
         Column(
@@ -270,7 +259,7 @@ fun HomeScreen(activity: Activity? = null) {
                 }
         ) {
             LaunchedEffect(pagerState.currentPage) {
-                if (pagerState.currentPage == 0) {
+                if (pagerState.currentPage == 0 && Prefs.leftPage == 1) {
                     // The left-most page acts as the Google-app shortcut. Return the launcher
                     // pager to Home first, so coming back from Google lands on the Home screen.
                     pagerState.animateScrollToPage(1)
@@ -285,10 +274,9 @@ fun HomeScreen(activity: Activity? = null) {
                 beyondViewportPageCount = if (Prefs.perf == 0) 0 else 1
             ) { page ->
                 when (page) {
-                    0 -> DiscoverPage()
+                    0 -> if (Prefs.leftPage == 0) SmartPage(onSearch = { animateDrawer(0f) }, onAddWidget = { pickerOpen = true }) else Box(Modifier.fillMaxSize())
                     1 -> HomePage(favs) { settingsOpen = true }
-                    2 -> WidgetsPage { pickerOpen = true }
-                    else -> AppPage(appPages.getOrNull(page - 3) ?: emptyList())
+                    else -> AppPage(appPages.getOrNull(page - 2) ?: emptyList())
                 }
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -302,10 +290,7 @@ fun HomeScreen(activity: Activity? = null) {
                     .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                dock.forEach { s ->
-                    val (d1, d2) = tintPair("", s.c1, s.c2)
-                    AppTile(null, d1, d2, s.intent) { GlyphIcon(s.glyph) }
-                }
+                dock.forEach { s -> DockIcon(s) }
                 AppsButton { animateDrawer(0f) }
             }
         }
@@ -416,27 +401,38 @@ fun HomeScreen(activity: Activity? = null) {
 }
 
 @Composable
+private fun Caption(text: String) {
+    Text(
+        text, color = Color.White.copy(alpha = .92f), fontSize = 12.sp, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp), style = TextStyle(shadow = LabelShadow)
+    )
+}
+
+/** Home page as in HyperOS: weather + clock, world clock, then your icons straight on the wallpaper. */
+@Composable
 private fun HomePage(favs: List<AppItem>, onSetup: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = 10.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp)
             .pointerInput(Unit) { detectTapGestures(onLongPress = { onSetup() }) } // long-press empty space: settings
     ) {
-        Row(Modifier.fillMaxWidth().height(168.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            ClockCard(Modifier.weight(1.55f).fillMaxHeight())
-            BatteryCard(Modifier.weight(1f).fillMaxHeight())
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                WeatherCard(Modifier.fillMaxWidth().aspectRatio(1f))
+                Caption("Weather")
+            }
+            Column(Modifier.weight(1f)) {
+                AnalogClockCard(Modifier.fillMaxWidth().aspectRatio(1f))
+                Caption("Clock")
+            }
         }
-        Spacer(Modifier.height(14.dp))
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 120.dp)
-                .glass(30.dp)
-                .padding(vertical = 18.dp, horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            favs.chunked(4).forEach { row ->
+        Spacer(Modifier.height(8.dp))
+        WorldClockCard(Modifier.fillMaxWidth().height(72.dp))
+        Caption("Clock")
+        Spacer(Modifier.height(16.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            favs.chunked(4).take(3).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     row.forEach { AppItemTile(it) }
                     repeat(4 - row.size) { Spacer(Modifier.width(72.dp)) }
@@ -452,53 +448,9 @@ private fun HomePage(favs: List<AppItem>, onSetup: () -> Unit) {
                         .glass(22.dp)
                         .padding(horizontal = 18.dp, vertical = 10.dp)
                 ) {
-                    Text("Set up the Dynamic Island", color = Pal.ink, fontSize = 13.sp)
+                    Text("Set up the Dynamic Island", color = Color.White, fontSize = 13.sp)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ClockCard(modifier: Modifier) {
-    val ctx = LocalContext.current
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    DisposableEffect(Unit) {
-        val r = object : BroadcastReceiver() {
-            override fun onReceive(c: Context?, i: Intent?) { now = System.currentTimeMillis() }
-        }
-        val f = IntentFilter().apply {
-            addAction(Intent.ACTION_TIME_TICK)
-            addAction(Intent.ACTION_TIME_CHANGED)
-            addAction(Intent.ACTION_TIMEZONE_CHANGED)
-        }
-        ContextCompat.registerReceiver(ctx, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
-        onDispose { ctx.unregisterReceiver(r) }
-    }
-    val is24 = DateFormat.is24HourFormat(ctx)
-    val time = remember(now, is24) { SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(Date(now)) }
-    val date = remember(now) { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date(now)) }
-    Column(modifier.glass(30.dp).padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Column {
-            Text(
-                time, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Light, letterSpacing = (-1.5).sp, maxLines = 1,
-                style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = .25f), Offset(0f, 2f), 6f))
-            )
-            Text(
-                date, color = Color.White.copy(alpha = .8f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = TextStyle(shadow = LabelShadow)
-            )
-        }
-        // weather is a placeholder for now (needs a data source)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(24.dp).clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(Color(0xFFFFF3C4), Pal.peach)))
-            )
-            Spacer(Modifier.width(10.dp))
-            Text("18°", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
-            Spacer(Modifier.width(8.dp))
-            Text("Partly cloudy", color = Color.White.copy(alpha = .75f), fontSize = 13.sp, maxLines = 1)
         }
     }
 }
@@ -529,27 +481,6 @@ fun rememberBattery(): BatteryInfo {
 }
 
 @Composable
-private fun BatteryCard(modifier: Modifier) {
-    val b = rememberBattery()
-    val sweep by animateFloatAsState(b.level * 3.6f, tween(900), label = "batt")
-    Box(modifier.glass(30.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize()) {
-                val sw = 9.dp.toPx()
-                val tl = Offset(sw / 2, sw / 2)
-                val sz = Size(size.width - sw, size.height - sw)
-                drawArc(Color.White.copy(alpha = .14f), -90f, 360f, false, tl, sz, style = Stroke(sw, cap = StrokeCap.Round))
-                drawArc(Brush.linearGradient(listOf(Pal.mint, Pal.violet)), -90f, sweep, false, tl, sz, style = Stroke(sw, cap = StrokeCap.Round))
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${b.level}", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
-                Text(if (b.charging) "Charging" else "Battery", color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-@Composable
 fun AppTile(
     label: String?, c1: Color, c2: Color, intent: Intent,
     light: Boolean = false,
@@ -566,7 +497,7 @@ fun AppTile(
     }
     val base = Modifier.onGloballyPositioned { coords[0] = it }
     Column(
-        // long-press an app icon to pick its own colour
+        // long-press an app icon to pick its own colour (tinted glass style)
         if (pkg != null) base.pressableLong(.9f, .94f, { Signals.colorTarget = pkg }) { open() }
         else base.pressable(.9f, .94f) { open() },
         horizontalAlignment = Alignment.CenterHorizontally
@@ -576,7 +507,7 @@ fun AppTile(
         if (label != null && Prefs.iconLabels) {
             Spacer(Modifier.height(6.dp))
             Text(
-                label, color = Color.White.copy(alpha = .88f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                label, color = Color.White.copy(alpha = .94f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center, modifier = Modifier.width(72.dp),
                 style = TextStyle(shadow = LabelShadow)
             )
@@ -586,12 +517,10 @@ fun AppTile(
 
 @Composable
 fun AppItemTile(a: AppItem, light: Boolean = false) {
-    if (Prefs.iconStyle == 2) {
-        // the app's own icon, untouched
-        val shape = RoundedCornerShape(Prefs.iconSize.dp * Prefs.iconRound)
-        AppTile(a.label, a.c1, a.c2, a.intent, light, raw = true, pkg = a.pkg) {
-            val img = a.full ?: a.icon
-            if (img != null) Image(img, null, Modifier.fillMaxSize().clip(shape))
+    if (Prefs.iconStyle != 1) {
+        // glossy (0) or plain (2): the app's own icon
+        AppTile(a.label, a.c1, a.c2, a.intent, light, raw = true, pkg = null) {
+            GlossyIcon(a.full ?: a.icon, plain = Prefs.iconStyle == 2, tint = a.c2)
         }
     } else {
         val b = brandFor(a.pkg)
@@ -606,6 +535,25 @@ fun AppItemTile(a: AppItem, light: Boolean = false) {
                 }
             }
         }
+    }
+}
+
+/** A dock slot: the phone's own default app (dialer, messages, camera, browser) with its real icon. */
+@Composable
+private fun DockIcon(d: DockItem) {
+    val ctx = LocalContext.current
+    val view = LocalView.current
+    val coords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    Box(
+        Modifier
+            .onGloballyPositioned { coords[0] = it }
+            .pressable(.9f, .94f) {
+                val r = try { coords[0]?.takeIf { it.isAttached }?.boundsInWindow() } catch (e: Exception) { null }
+                launchApp(ctx, view, d.intent, r)
+            }
+    ) {
+        if (d.icon != null && Prefs.iconStyle != 1) GlossyIcon(d.icon, plain = Prefs.iconStyle == 2, tint = d.c2)
+        else GlassTile(d.c1, d.c2) { GlyphIcon(d.glyph) }
     }
 }
 

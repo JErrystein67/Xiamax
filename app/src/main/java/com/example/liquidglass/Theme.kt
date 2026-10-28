@@ -2,12 +2,15 @@ package com.example.liquidglass
 
 import androidx.compose.ui.graphics.Color
 
+/** Soft HyperOS-style palette. The old names are kept so every screen picks up the new colours. */
 object Pal {
-    val base = Color(0xFF0B0920)
-    val violet = Color(0xFF7C5CFF)
-    val mint = Color(0xFF2DE2C8)
-    val pink = Color(0xFFFF6BA6)
+    val base = Color(0xFF1B332D)      // deep green behind everything
+    val violet = Color(0xFF3D8BFF)    // accent blue
+    val mint = Color(0xFF3CCFB0)      // accent teal
+    val pink = Color(0xFF7DB4FF)      // light accent blue (gradient partner)
     val peach = Color(0xFFFFB86B)
-    val ink = Color(0xFFF6F4FF)
-    val ink2 = Color(0xA8F6F4FF)
+    val ink = Color(0xFFFFFFFF)
+    val ink2 = Color(0xB8FFFFFF)
+    val inkDark = Color(0xFF1B2A27)   // text on milky glass
+    val inkDark2 = Color(0xAA1B2A27)
 }

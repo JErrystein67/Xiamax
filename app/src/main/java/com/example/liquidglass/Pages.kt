@@ -53,9 +53,7 @@ fun AppPage(items: List<AppItem>) {
     Column(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 14.dp)
-            .glass(30.dp)
-            .padding(vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.SpaceEvenly
     ) {
         for (r in 0 until 6) {

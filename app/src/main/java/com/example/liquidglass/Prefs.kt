@@ -23,7 +23,7 @@ object Prefs {
     var calls by mutableStateOf(true)
     var offX by mutableFloatStateOf(0f)             // dp
     var offY by mutableFloatStateOf(0f)             // dp
-    var islandColor by mutableIntStateOf(0xFF2C245E.toInt())
+    var islandColor by mutableIntStateOf(0xFF1D2B28.toInt())
     var islandOpacity by mutableFloatStateOf(.72f)
 
     // app icons
@@ -49,6 +49,8 @@ object Prefs {
     var shadeMode by mutableIntStateOf(0)           // 0 phone's own shade, 1 Liquid Glass panels
     var perf by mutableIntStateOf(1)                // 0 battery saver, 1 balanced, 2 full
     var firstRun by mutableStateOf(true)
+    var worldZone by mutableStateOf("Europe/London") // second city on the world clock
+    var leftPage by mutableIntStateOf(0)            // 0 smart widgets page, 1 opens the Google app
 
     fun init(ctx: Context) {
         if (sp != null) return
@@ -60,7 +62,7 @@ object Prefs {
         calls = p.getBoolean("calls", true)
         offX = p.getFloat("offX", 0f)
         offY = p.getFloat("offY", 0f)
-        islandColor = p.getInt("islandColor", 0xFF2C245E.toInt())
+        islandColor = p.getInt("islandColor", 0xFF1D2B28.toInt())
         islandOpacity = p.getFloat("islandOpacity", .72f)
         iconStyle = p.getInt("iconStyle", 0)
         iconSize = p.getFloat("iconSize", 58f)
@@ -83,6 +85,8 @@ object Prefs {
         shadeMode = p.getInt("shadeMode", 0)
         perf = p.getInt("perf", 1)
         firstRun = p.getBoolean("firstRun", true)
+        worldZone = p.getString("worldZone", "Europe/London") ?: "Europe/London"
+        leftPage = p.getInt("leftPage", 0)
     }
 
     fun save() {
@@ -113,6 +117,8 @@ object Prefs {
             ?.putInt("shadeMode", shadeMode)
             ?.putInt("perf", perf)
             ?.putBoolean("firstRun", firstRun)
+            ?.putString("worldZone", worldZone)
+            ?.putInt("leftPage", leftPage)
             ?.apply()
     }
 

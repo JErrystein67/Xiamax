@@ -72,7 +72,7 @@ fun ColorSheet(pkg: String, label: String, onClose: () -> Unit) {
                 .padding(16.dp)
                 .fillMaxWidth()
                 .clip(shape)
-                .background(Color(0xF2140F36))
+                .background(Color(0xF2183029))
                 .border(1.dp, Color.White.copy(alpha = .18f), shape)
                 .pointerInput(Unit) { detectTapGestures { } }
                 .padding(20.dp),

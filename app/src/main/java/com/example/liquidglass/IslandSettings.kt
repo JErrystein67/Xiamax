@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -194,7 +196,7 @@ private fun SwatchRow(colors: List<Int>, selected: Int, onSelect: (Int) -> Unit)
     }
 }
 
-private val islandSwatches = listOf(0xFF2C245E, 0xFF000000, 0xFF23262F, 0xFF12306B, 0xFF0F4D3A, 0xFF5A1236).map { it.toInt() }
+private val islandSwatches = listOf(0xFF1D2B28, 0xFF000000, 0xFF23262F, 0xFF12306B, 0xFF0F4D3A, 0xFF5A1236).map { it.toInt() }
 
 @Composable
 fun IslandSettings(onClose: () -> Unit) {
@@ -206,6 +208,12 @@ fun IslandSettings(onClose: () -> Unit) {
     val notifOk = remember(tick) { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
     val writeOk = remember(tick) { Settings.System.canWrite(ctx) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Signals.resume++ }
+    val locLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Signals.resume++ }
+    val calLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Signals.resume++ }
+    val btLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Signals.resume++ }
+    val locOk = remember(tick) { ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED }
+    val calOk = remember(tick) { ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED }
+    val btOk = remember(tick) { Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED }
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { Signals.resume++ }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -231,7 +239,7 @@ fun IslandSettings(onClose: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xF00B0920), Color(0xFA0B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0xF2162B26), Color(0xFA0F1E1A))))
             .pointerInput(Unit) { detectTapGestures { } }
             .statusBarsPadding()
             .padding(top = 56.dp)
@@ -272,6 +280,9 @@ fun IslandSettings(onClose: () -> Unit) {
                 PermRow("Change system settings", "Lets the Control Center set brightness", writeOk) {
                     ctx.safeStart(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, pkgUri))
                 }
+                PermRow("Location", "Weather for where you are", locOk) { locLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                PermRow("Calendar", "Your next event on the calendar card", calOk) { calLauncher.launch(Manifest.permission.READ_CALENDAR) }
+                PermRow("Bluetooth devices", "Paired devices in the Control Center", btOk) { btLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }
                 if (!listenerOk) {
                     Caption("If Android says \"Restricted setting\": tap Open app info, press the ⋮ menu (top right), choose \"Allow restricted settings\", then press Allow again.")
                     PillButton("Open app info") {
@@ -304,10 +315,10 @@ fun IslandSettings(onClose: () -> Unit) {
             }
 
             Section("APP ICONS") {
-                ChoiceRow("Style", listOf("Glass", "Flat", "Original"), Prefs.iconStyle) { Prefs.iconStyle = it; Prefs.save() }
+                ChoiceRow("Style", listOf("Glossy", "Tinted glass", "Plain"), Prefs.iconStyle) { Prefs.iconStyle = it; Prefs.save() }
                 SliderRow("Size", Prefs.iconSize, 48f..68f, "${Prefs.iconSize.toInt()} dp") { Prefs.iconSize = it }
                 SliderRow("Roundness", Prefs.iconRound, .2f..0.5f, "${(Prefs.iconRound * 100).toInt()}%") { Prefs.iconRound = it }
-                if (Prefs.iconStyle == 0) {
+                if (Prefs.iconStyle == 1) {
                     SliderRow("Glass tint", Prefs.iconAlpha, .3f..1f, "${(Prefs.iconAlpha * 100).toInt()}%") { Prefs.iconAlpha = it }
                 }
                 SwitchRow("Show names under icons", null, Prefs.iconLabels) { Prefs.iconLabels = it; Prefs.save() }
@@ -327,10 +338,9 @@ fun IslandSettings(onClose: () -> Unit) {
             }
 
             Section("WALLPAPER") {
-                ChoiceRow("Source", listOf("Phone's own", "Gradient", "Photo"), Prefs.wallMode) { Prefs.wallMode = it; Prefs.save() }
+                ChoiceRow("Source", listOf("Phone's own", "HyperOS art", "Photo"), Prefs.wallMode) { Prefs.wallMode = it; Prefs.save() }
                 if (Prefs.wallMode == 1) {
-                    ChoiceRow("Colors", palettes.map { it.name }, Prefs.wallPalette) { Prefs.wallPalette = it; Prefs.save() }
-                    SwitchRow("Animate gradient", "Only in Full quality. Uses more battery.", Prefs.wallAnim) { Prefs.wallAnim = it; Prefs.save() }
+                    ChoiceRow("Colors", artPalettes.map { it.name }, Prefs.wallPalette) { Prefs.wallPalette = it; Prefs.save() }
                 }
                 if (Prefs.wallMode == 2) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -355,6 +365,12 @@ fun IslandSettings(onClose: () -> Unit) {
                 if (Prefs.wallMode == 0) Caption("Shows the wallpaper set in your phone's own settings. Use Dim if the icons are hard to read.")
             }
 
+            Section("HOME & WIDGETS") {
+                ChoiceRow("Left page", listOf("Smart widgets", "Google app"), Prefs.leftPage) { Prefs.leftPage = it; Prefs.save() }
+                ChoiceRow("World clock city", zonesA.map { it.first }, zonesA.indexOfFirst { it.second == Prefs.worldZone }) { Prefs.worldZone = zonesA[it].second; Prefs.save() }
+                ChoiceRow("", zonesB.map { it.first }, zonesB.indexOfFirst { it.second == Prefs.worldZone }) { Prefs.worldZone = zonesB[it].second; Prefs.save() }
+            }
+
             Section("PULL-DOWN PANELS") {
                 ChoiceRow("From the top edge", listOf("Phone's own", "Liquid Glass"), Prefs.shadeMode) { Prefs.shadeMode = it; Prefs.save() }
                 Caption("Phone's own keeps your normal notification shade and control center. Liquid Glass swaps in ours (notifications on the left half, control center on the right) while you are on the home screen.")
@@ -362,7 +378,7 @@ fun IslandSettings(onClose: () -> Unit) {
 
             Section("PERFORMANCE") {
                 ChoiceRow("Quality", listOf("Battery saver", "Balanced", "Full"), Prefs.perf) { Prefs.perf = it; Prefs.save() }
-                Caption("Battery saver: no shadows or highlights, still wallpaper. Balanced: lighter shadows, still wallpaper. Full: richest look, animated wallpaper allowed.")
+                Caption("Battery saver: no shadows or highlights, still wallpaper. Balanced: lighter shadows, still wallpaper. Full: richest look.")
             }
 
             Section("HYPEROS") {
@@ -400,3 +416,6 @@ private fun PairRow(pairs: List<Pair<Int, Int>>, onSelect: (Int, Int) -> Unit) {
         }
     }
 }
+
+private val zonesA = listOf("UTC" to "UTC", "London" to "Europe/London", "Paris" to "Europe/Paris", "Dubai" to "Asia/Dubai")
+private val zonesB = listOf("New York" to "America/New_York", "Tokyo" to "Asia/Tokyo", "Sydney" to "Australia/Sydney", "Shanghai" to "Asia/Shanghai")

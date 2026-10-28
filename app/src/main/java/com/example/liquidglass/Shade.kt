@@ -1,16 +1,22 @@
 package com.example.liquidglass
 
+import android.Manifest
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.bluetooth.BluetoothManager
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.net.wifi.WifiManager
 import android.provider.Settings
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +40,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -68,6 +77,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -104,7 +114,7 @@ private fun PanelFrame(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxSize()
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xF2150F3A), Color(0xF50B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0xEC21423A), Color(0xF2142823))))
             .border(
                 1.dp,
                 Brush.verticalGradient(0f to Color.White.copy(alpha = .22f), 1f to Color.White.copy(alpha = .08f)),
@@ -245,54 +255,163 @@ private fun QuickGlyph(kind: Int, tint: Color) {
 }
 
 @Composable
-private fun QuickTile(label: String, on: Boolean, modifier: Modifier, onClick: () -> Unit, icon: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(28.dp)
-    Column(
-        modifier
-            .pressable(.94f, .94f, onClick)
-            .clip(shape)
-            .background(
-                if (on) Brush.linearGradient(listOf(Pal.violet.copy(alpha = .85f), Pal.pink.copy(alpha = .75f)))
-                else Brush.linearGradient(listOf(Color.White.copy(alpha = .12f), Color.White.copy(alpha = .06f)))
-            )
-            .border(1.dp, Color.White.copy(alpha = if (on) .35f else .16f), shape)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        icon()
-        Text(label, color = Pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+private fun SectionLabel(text: String) {
+    Text(text, color = Pal.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+}
+
+/** Round glass toggle. On = solid white with a coloured icon, like the HyperOS common controls. */
+@Composable
+private fun CircleToggle(label: String, on: Boolean, onClick: () -> Unit, icon: @Composable (Color) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier
+                .size(58.dp)
+                .pressable(.92f, .92f, onClick)
+                .clip(CircleShape)
+                .background(
+                    if (on) Brush.linearGradient(listOf(Color.White, Color(0xFFDDEBFF)))
+                    else Brush.linearGradient(listOf(Color.White.copy(alpha = .18f), Color.White.copy(alpha = .09f)))
+                )
+                .border(1.dp, Color.White.copy(alpha = if (on) .8f else .3f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) { icon(if (on) Color(0xFF2F6FE0) else Color.White) }
+        Text(label, color = Pal.ink, fontSize = 11.sp)
+    }
+}
+
+class BtDev(val name: String, val major: Int, val connected: Boolean)
+
+private fun btAllowed(ctx: Context): Boolean =
+    Build.VERSION.SDK_INT < 31 ||
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+/** Paired Bluetooth devices, connected ones (audio) first. */
+@Composable
+private fun rememberBtDevices(allowed: Boolean): List<BtDev> {
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf<List<BtDev>>(emptyList()) }
+    DisposableEffect(allowed) {
+        var proxy: BluetoothProfile? = null
+        val adapter = try { ctx.getSystemService(BluetoothManager::class.java)?.adapter } catch (e: Exception) { null }
+        fun load() {
+            try {
+                if (adapter == null || !allowed) { list = emptyList(); return }
+                val on = proxy?.connectedDevices?.map { it.address }?.toSet() ?: emptySet()
+                list = adapter.bondedDevices
+                    .map { d -> BtDev(d.name ?: d.address, d.bluetoothClass?.majorDeviceClass ?: 0, d.address in on) }
+                    .sortedByDescending { it.connected }
+            } catch (e: Exception) {
+                list = emptyList()
+            }
+        }
+        val l = object : BluetoothProfile.ServiceListener {
+            override fun onServiceConnected(profile: Int, p: BluetoothProfile) { proxy = p; load() }
+            override fun onServiceDisconnected(profile: Int) { proxy = null; load() }
+        }
+        try { if (allowed) adapter?.getProfileProxy(ctx, l, BluetoothProfile.A2DP) } catch (e: Exception) { }
+        load()
+        onDispose { try { proxy?.let { adapter?.closeProfileProxy(BluetoothProfile.A2DP, it) } } catch (e: Exception) { } }
+    }
+    return list
+}
+
+@Composable
+private fun DeviceGlyph(major: Int, tint: Color) {
+    Canvas(Modifier.size(30.dp)) {
+        val s = size.minDimension
+        val st = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round)
+        when (major) {
+            0x0400 -> { // headphones
+                drawArc(tint, 180f, 180f, false, Offset(s * .15f, s * .12f), Size(s * .70f, s * .70f), style = st)
+                drawRoundRect(tint, Offset(s * .08f, s * .50f), Size(s * .16f, s * .30f), CornerRadius(s * .06f))
+                drawRoundRect(tint, Offset(s * .76f, s * .50f), Size(s * .16f, s * .30f), CornerRadius(s * .06f))
+            }
+            0x0700 -> { // watch
+                drawRoundRect(tint, Offset(s * .25f, s * .27f), Size(s * .50f, s * .46f), CornerRadius(s * .14f), style = st)
+                drawLine(tint, Offset(s * .38f, s * .08f), Offset(s * .38f, s * .27f), st.width, StrokeCap.Round)
+                drawLine(tint, Offset(s * .62f, s * .08f), Offset(s * .62f, s * .27f), st.width, StrokeCap.Round)
+                drawLine(tint, Offset(s * .38f, s * .73f), Offset(s * .38f, s * .92f), st.width, StrokeCap.Round)
+                drawLine(tint, Offset(s * .62f, s * .73f), Offset(s * .62f, s * .92f), st.width, StrokeCap.Round)
+            }
+            0x0200 -> { // phone
+                drawRoundRect(tint, Offset(s * .28f, s * .06f), Size(s * .44f, s * .88f), CornerRadius(s * .10f), style = st)
+                drawCircle(tint, s * .03f, Offset(s * .5f, s * .82f))
+            }
+            else -> {
+                drawCircle(tint, s * .34f, Offset(s / 2, s / 2), style = st)
+                drawCircle(tint, s * .08f, Offset(s / 2, s / 2))
+            }
+        }
     }
 }
 
 @Composable
-private fun VSlider(value: Float, label: String, onStart: () -> Unit, onChange: (Float) -> Unit, modifier: Modifier) {
-    val shape = RoundedCornerShape(34.dp)
+private fun DeviceTile(dev: BtDev, modifier: Modifier) {
+    val shape = RoundedCornerShape(24.dp)
     Box(
         modifier
+            .height(104.dp)
             .clip(shape)
-            .background(Color.White.copy(alpha = .10f))
-            .border(1.dp, Color.White.copy(alpha = .18f), shape)
+            .background(
+                if (dev.connected) Brush.linearGradient(listOf(Color(0xFF4F8EE8), Color(0xFF7BB0F2)))
+                else Brush.linearGradient(listOf(Color.White.copy(alpha = .20f), Color.White.copy(alpha = .09f)))
+            )
+            .border(1.dp, Color.White.copy(alpha = if (dev.connected) .55f else .28f), shape)
+            .padding(14.dp)
+    ) {
+        Box(Modifier.align(Alignment.TopStart)) { DeviceGlyph(dev.major, Color.White) }
+        Column(Modifier.align(Alignment.BottomStart)) {
+            Text(dev.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (dev.connected) "Connected" else "Paired", color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
+        }
+    }
+}
+
+/** Wide glass slider (brightness / volume): fills white from the left, icon inside the fill. */
+@Composable
+private fun HSlider(value: Float, sun: Boolean, onStart: () -> Unit, onChange: (Float) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .glass(28.dp)
             .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { onStart() },
-                    onVerticalDrag = { change, _ ->
-                        change.consume()
-                        onChange((1f - change.position.y / size.height).coerceIn(0f, 1f))
-                    }
-                )
+                detectHorizontalDragGestures(onDragStart = { onStart() }) { change, _ ->
+                    change.consume()
+                    onChange((change.position.x / size.width).coerceIn(0f, 1f))
+                }
             }
             .pointerInput(Unit) {
-                detectTapGestures(onTap = { o -> onStart(); onChange((1f - o.y / size.height).coerceIn(0f, 1f)) })
+                detectTapGestures(onTap = { o -> onStart(); onChange((o.x / size.width).coerceIn(0f, 1f)) })
             }
     ) {
         Box(
             Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(value.coerceIn(0.03f, 1f))
-                .background(Brush.verticalGradient(listOf(Pal.mint.copy(alpha = .9f), Pal.violet.copy(alpha = .9f))))
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .fillMaxWidth(value.coerceIn(.08f, 1f))
+                .background(Color.White.copy(alpha = .96f))
         )
-        Text(label, color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
+        Canvas(Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(26.dp)) {
+            val s = size.minDimension
+            if (sun) {
+                val c = Color(0xFFFF9F1A)
+                drawCircle(c, s * .20f, Offset(s / 2, s / 2))
+                for (i in 0 until 8) {
+                    val a = i * 45f * (Math.PI.toFloat() / 180f)
+                    drawLine(c, Offset(s / 2 + kotlin.math.sin(a) * s * .32f, s / 2 - kotlin.math.cos(a) * s * .32f),
+                        Offset(s / 2 + kotlin.math.sin(a) * s * .46f, s / 2 - kotlin.math.cos(a) * s * .46f), 2.dp.toPx(), StrokeCap.Round)
+                }
+            } else {
+                val c = Color(0xFF2F7BFF)
+                val p = Path().apply {
+                    moveTo(s * .08f, s * .38f); lineTo(s * .28f, s * .38f); lineTo(s * .52f, s * .16f)
+                    lineTo(s * .52f, s * .84f); lineTo(s * .28f, s * .62f); lineTo(s * .08f, s * .62f); close()
+                }
+                drawPath(p, c)
+                drawArc(c, -40f, 80f, false, Offset(s * .50f, s * .30f), Size(s * .30f, s * .40f), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+            }
+        }
     }
 }
 
@@ -344,6 +463,11 @@ fun ControlCenter(
         onDispose { try { cm.unregisterTorchCallback(cb) } catch (e: Exception) { } }
     }
 
+    // Bluetooth devices
+    val btAllowedState = remember { mutableStateOf(btAllowed(ctx)) }
+    val btLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { btAllowedState.value = it }
+    val devices = rememberBtDevices(btAllowedState.value)
+
     // Volume: real
     val am = remember { ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVol = remember { am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
@@ -355,35 +479,39 @@ fun ControlCenter(
     }
 
     PanelFrame {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Control Center", color = Pal.ink, fontSize = 26.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Control Center", color = Pal.ink, fontSize = 24.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
             BatteryBadge(battery.level, battery.charging)
         }
-        Row(
-            Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickTile("Wi-Fi", wifiOn, Modifier.weight(1f).fillMaxHeight(), {
-                        ctx.safeStart(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY))
-                    }) { QuickGlyph(0, Color.White) }
-                    QuickTile("Bluetooth", btOn, Modifier.weight(1f).fillMaxHeight(), {
-                        ctx.safeStart(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                    }) { QuickGlyph(1, Color.White) }
-                }
-                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickTile("Flashlight", torch, Modifier.weight(1f).fillMaxHeight(), {
-                        try { camId?.let { cm.setTorchMode(it, !torch) } } catch (e: Exception) { }
-                    }) { QuickGlyph(2, Color.White) }
-                    QuickTile("Island", false, Modifier.weight(1f).fillMaxHeight(), onOpenIslandSettings) {
-                        Icon(Icons.Filled.Settings, null, Modifier.size(28.dp), tint = Color.White)
+            SectionLabel("Common")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                CircleToggle("Wi-Fi", wifiOn, { ctx.safeStart(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)) }) { QuickGlyph(0, it) }
+                CircleToggle("Bluetooth", btOn, { ctx.safeStart(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { QuickGlyph(1, it) }
+                CircleToggle("Flashlight", torch, { try { camId?.let { cm.setTorchMode(it, !torch) } } catch (e: Exception) { } }) { QuickGlyph(2, it) }
+                CircleToggle("Settings", false, onOpenIslandSettings) { Icon(Icons.Filled.Settings, null, Modifier.size(28.dp), tint = it) }
+            }
+
+            SectionLabel("Nearby & personal devices")
+            when {
+                !btAllowedState.value -> Box(
+                    Modifier.fillMaxWidth().pressable(.98f, .98f) { btLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }.glass(24.dp).padding(18.dp)
+                ) { Text("Allow Bluetooth to see your devices", color = Pal.ink, fontSize = 14.sp) }
+                devices.isEmpty() -> Text("No paired devices", color = Pal.ink2, fontSize = 13.sp)
+                else -> devices.take(6).chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        row.forEach { DeviceTile(it, Modifier.weight(1f)) }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
-                MiniPlayer()
             }
-            VSlider(
-                value = bright, label = "Light",
+
+            SectionLabel("Brightness & sound")
+            HSlider(
+                value = bright, sun = true,
                 onStart = {
                     if (!Settings.System.canWrite(ctx)) {
                         ctx.safeStart(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${ctx.packageName}")))
@@ -397,17 +525,17 @@ fun ControlCenter(
                             Settings.System.putInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS, (v * 255).roundToInt().coerceIn(1, 255))
                         }
                     } catch (e: Exception) { }
-                },
-                modifier = Modifier.width(74.dp).fillMaxHeight()
+                }
             )
-            VSlider(
-                value = vol, label = "Volume", onStart = { },
+            HSlider(
+                value = vol, sun = false, onStart = { },
                 onChange = { v ->
                     vol = v
                     try { am.setStreamVolume(AudioManager.STREAM_MUSIC, (v * maxVol).roundToInt(), 0) } catch (e: Exception) { }
-                },
-                modifier = Modifier.width(74.dp).fillMaxHeight()
+                }
             )
+            MiniPlayer()
+            Spacer(Modifier.height(6.dp))
         }
         PanelHandle(onDragStart, onDrag, onDragEnd)
     }

@@ -173,17 +173,14 @@ private fun WPill(text: String, filled: Boolean, onClick: () -> Unit) {
 
 /** The widgets page, right of the home page. */
 @Composable
-fun WidgetsPage(onAdd: () -> Unit) {
+fun WidgetsSection(onAdd: () -> Unit) {
     var edit by remember { mutableStateOf(false) }
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Widgets", color = Pal.ink, fontSize = 30.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
+            Text("Widgets", color = Pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
             if (WidgetHub.ids.isNotEmpty()) {
                 WPill(if (edit) "Done" else "Edit", false) { edit = !edit }
                 Spacer(Modifier.width(8.dp))
@@ -312,7 +309,7 @@ fun WidgetPicker(activity: Activity?, onClose: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xF20B0920), Color(0xFA0B0920))))
+            .background(Brush.verticalGradient(listOf(Color(0xF2142823), Color(0xFA0F1E1A))))
             .pointerInput(Unit) { detectTapGestures { } }
             .statusBarsPadding()
             .padding(top = 28.dp)

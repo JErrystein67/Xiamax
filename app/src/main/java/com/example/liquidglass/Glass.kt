@@ -5,8 +5,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -116,17 +119,23 @@ val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
 
 // ------------------------------------------------------------------ constant brushes / colours (allocated once)
 
-private val ShadowColor = Color(0xFF030014)
+private val ShadowColor = Color(0xFF0B1F1A)
 private val SatFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.5f) })
 
 private val GlassFill = Brush.linearGradient(
-    listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .05f), Color.White.copy(alpha = .09f))
+    listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .07f), Color.White.copy(alpha = .11f))
 )
+
+/** Milky glass (calendar, world clock): light, with dark text on top. */
+private val MilkFill = Brush.linearGradient(
+    listOf(Color.White.copy(alpha = .66f), Color.White.copy(alpha = .46f), Color.White.copy(alpha = .56f))
+)
+private val NoPlate = SolidColor(Color.Transparent)
 
 /** Content plate: soft ambient contrast between the glass and whatever is drawn on it. */
 private val Plate = Brush.verticalGradient(
-    0f to Color.Black.copy(alpha = .04f),
-    1f to Color.Black.copy(alpha = .14f)
+    0f to Color.Black.copy(alpha = .08f),
+    1f to Color.Black.copy(alpha = .20f)
 )
 
 /**
@@ -175,7 +184,7 @@ fun Modifier.softShadow(
     }
 
 /** iOS-style liquid glass panel, see the layer stack at the top of this file. */
-fun Modifier.glass(radius: Dp): Modifier = composed {
+fun Modifier.glass(radius: Dp, light: Boolean = false): Modifier = composed {
     val bd = LocalBackdrop.current
     val pos = remember { FloatArray(2) }
     var tick by remember { mutableIntStateOf(0) }
@@ -191,7 +200,7 @@ fun Modifier.glass(radius: Dp): Modifier = composed {
                 }
             }
         }
-        .softShadow(radius, ShadowColor, spread = 12.dp, dy = 5.dp, alpha = .30f)
+        .softShadow(radius, ShadowColor, spread = 12.dp, dy = 5.dp, alpha = .22f)
         .clip(shape)
         // glass shell, layer 1: frosted slice of the photo wallpaper (only when a photo wallpaper is set)
         .drawWithCache {
@@ -216,8 +225,8 @@ fun Modifier.glass(radius: Dp): Modifier = composed {
             }
         }
         // glass shell, layer 2: translucent fill, then the content plate
-        .background(GlassFill)
-        .background(Plate)
+        .background(if (light) MilkFill else GlassFill)
+        .background(if (light) NoPlate else Plate)
         .border(1.2.dp, LiquidRim, shape)
         // surface light, drawn above the content
         .drawWithCache {
@@ -349,7 +358,7 @@ fun GlassTile(
 ) {
     val n = squircleN(Prefs.iconRound)
     val shape = remember(n) { Squircle(n) }
-    val flat = Prefs.iconStyle == 1
+    val flat = false
     val tint = Prefs.iconAlpha
     val perf = Prefs.perf
     val radius = tileSize * Prefs.iconRound
@@ -420,5 +429,50 @@ fun GlassTile(
             contentAlignment = Alignment.Center,
             content = content
         )
+    }
+}
+
+
+/**
+ * HyperOS-style glossy app icon: the app's real icon in a squircle with a glass sheen over it,
+ * a thin lit rim and a soft shadow in the icon's own colour. plain = no glass, just the icon.
+ */
+@Composable
+fun GlossyIcon(img: ImageBitmap?, plain: Boolean, tint: Color, size: Dp = Prefs.iconSize.dp) {
+    val n = squircleN(Prefs.iconRound)
+    val shape = remember(n) { Squircle(n) }
+    val perf = Prefs.perf
+    val base = if (plain || perf == 0) Modifier.size(size)
+    else Modifier.size(size).softShadow(
+        size * Prefs.iconRound, tint, spread = 7.dp, dy = 4.dp, alpha = .34f,
+        shapePath = { w, h -> squirclePath(w, h, n) }
+    )
+    Box(
+        base
+            .clip(shape)
+            .drawWithCache {
+                val w = this.size.width
+                val h = this.size.height
+                val gloss = if (!plain) Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = .36f), Color.White.copy(alpha = .06f), Color.Transparent), endY = h * .55f
+                ) else null
+                val glare = if (!plain && perf > 0) Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = .34f), Color.Transparent), center = Offset(w * .28f, h * .02f), radius = w * .7f
+                ) else null
+                val rim = if (!plain) Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = .75f), .4f to Color.White.copy(alpha = .12f), 1f to Color.White.copy(alpha = .28f)
+                ) else null
+                val path = if (!plain) squirclePath(w, h, n) else null
+                val st = 1.dp.toPx()
+                onDrawWithContent {
+                    drawContent()
+                    if (gloss != null) drawRect(gloss)
+                    if (glare != null) drawRect(glare)
+                    if (rim != null && path != null) drawPath(path, rim, style = Stroke(st))
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (img != null) Image(img, null, Modifier.fillMaxSize())
     }
 }

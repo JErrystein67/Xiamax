@@ -25,6 +25,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -35,21 +37,21 @@ import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
 
-class Palette(val name: String, val a: Color, val b: Color, val c: Color, val d: Color)
+class ArtPalette(val name: String, val top: Color, val mid: Color, val bottom: Color, val glow: Color, val deep: Color, val line: Color)
 
-val palettes = listOf(
-    Palette("Aurora", Pal.violet, Pal.mint, Pal.pink, Pal.peach),
-    Palette("Sunset", Color(0xFFFF6B6B), Color(0xFFFFB86B), Color(0xFF8A4BFF), Color(0xFFFF6BA6)),
-    Palette("Ocean", Color(0xFF2F7BFF), Color(0xFF2DE2C8), Color(0xFF7C5CFF), Color(0xFF3BE8FF)),
-    Palette("Mono", Color(0xFF3A3F66), Color(0xFF5C6190), Color(0xFF2A2E52), Color(0xFF8E98C4))
+val artPalettes = listOf(
+    ArtPalette("Sage", Color(0xFFD7E3DE), Color(0xFFA9C2B9), Color(0xFF7FA397), Color(0xFFEDE6B8), Color(0xFF214E44), Color(0xFFF2B36B)),
+    ArtPalette("Dusk", Color(0xFF8FB3A6), Color(0xFF4F8274), Color(0xFF1E4A40), Color(0xFFB9C98A), Color(0xFF0F2B27), Color(0xFFE7A15B)),
+    ArtPalette("Sand", Color(0xFFEFE7D3), Color(0xFFD9CFAF), Color(0xFFB7C7B0), Color(0xFFF6E9B7), Color(0xFF6C8F78), Color(0xFFE59C5C)),
+    ArtPalette("Mist", Color(0xFFE3E8F0), Color(0xFFB7C3D9), Color(0xFF8EA2C4), Color(0xFFEFE6F2), Color(0xFF3A4C78), Color(0xFFE9A6B8))
 )
 
 /** 0 = nothing drawn: the phone's own wallpaper shows through the window. */
 @Composable
-fun WallpaperLayer(active: Boolean) {
+fun WallpaperLayer() {
     when (Prefs.wallMode) {
         0 -> Unit
-        1 -> GradientWallpaper(active && Prefs.perf == 2 && Prefs.wallAnim)
+        1 -> ArtWallpaper()
         else -> ImageWallpaper()
     }
     if (Prefs.wallDim > 0.01f) {
@@ -57,35 +59,53 @@ fun WallpaperLayer(active: Boolean) {
     }
 }
 
+/** Soft pastel wallpaper with glowing light and big translucent glass sheets. Drawn once, never animated. */
 @Composable
-private fun GradientWallpaper(animate: Boolean) {
-    var phase by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(animate) {
-        if (animate) {
-            var last = 0L
-            while (true) {
-                withFrameNanos { n -> if (n - last > 33_000_000L) { last = n; phase = n / 1_000_000_000f } }
-            }
-        }
-    }
-    val pal = palettes[Prefs.wallPalette.coerceIn(0, palettes.size - 1)]
+private fun ArtWallpaper() {
+    val pal = artPalettes[Prefs.wallPalette.coerceIn(0, artPalettes.size - 1)]
     Canvas(Modifier.fillMaxSize()) {
-        val p = phase
         val w = size.width
         val h = size.height
-        drawRect(Pal.base)
-        fun blob(c: Color, cx: Float, cy: Float, r: Float, ax: Float, ay: Float, sp: Float, ph: Float, a: Float) {
-            val x = cx + ax * sin(p * sp + ph)
-            val y = cy + ay * cos(p * sp * .8f + ph)
+        drawRect(Brush.verticalGradient(listOf(pal.top, pal.mid, pal.bottom)))
+        fun glow(c: Color, cx: Float, cy: Float, r: Float, a: Float) {
             drawCircle(
-                Brush.radialGradient(listOf(c.copy(alpha = a), Color.Transparent), center = Offset(x, y), radius = r),
-                radius = r, center = Offset(x, y)
+                Brush.radialGradient(listOf(c.copy(alpha = a), Color.Transparent), center = Offset(cx, cy), radius = r),
+                radius = r, center = Offset(cx, cy)
             )
         }
-        blob(pal.a, w * .05f, h * .30f, w * 1.0f, w * .18f, h * .05f, .25f, 0f, .85f)
-        blob(pal.b, w * .95f, h * .55f, w * .9f, w * .16f, h * .06f, .20f, 2f, .70f)
-        blob(pal.c, w * .25f, h * .92f, w * 1.0f, w * .20f, h * .04f, .17f, 4f, .75f)
-        blob(pal.d, w * .85f, h * .04f, w * .6f, w * .12f, h * .03f, .22f, 1f, .45f)
+        glow(pal.glow, w * .35f, h * .80f, w * .95f, .90f)
+        glow(pal.glow, w * .05f, h * .42f, w * .60f, .55f)
+        glow(pal.mid, w * 1.00f, h * .38f, w * .65f, .70f)
+        glow(pal.deep, w * 1.05f, -h * .02f, w * .85f, .95f)
+        glow(pal.deep, -w * .05f, h * 1.02f, w * .55f, .45f)
+
+        // big translucent glass leaf
+        val leaf = Path().apply {
+            moveTo(w * .30f, h * .50f)
+            cubicTo(w * .62f, h * .56f, w * .98f, h * .74f, w * .82f, h * 1.05f)
+            cubicTo(w * .55f, h * .92f, w * .30f, h * .72f, w * .30f, h * .50f)
+            close()
+        }
+        drawPath(
+            leaf,
+            Brush.linearGradient(
+                listOf(Color.White.copy(alpha = .26f), Color.White.copy(alpha = .04f)),
+                start = Offset(w * .3f, h * .5f), end = Offset(w * .9f, h)
+            )
+        )
+        drawPath(
+            leaf,
+            Brush.linearGradient(
+                listOf(Color.White.copy(alpha = .60f), pal.line.copy(alpha = .55f), Color.Transparent),
+                start = Offset(w * .3f, h * .5f), end = Offset(w * .9f, h)
+            ),
+            style = Stroke(1.5.dp.toPx())
+        )
+        // big soft ring top-left
+        drawCircle(Color.White.copy(alpha = .10f), w * .62f, Offset(w * .18f, h * .14f))
+        drawCircle(Color.White.copy(alpha = .26f), w * .62f, Offset(w * .18f, h * .14f), style = Stroke(1.2.dp.toPx()))
+        // thin warm diagonal line
+        drawLine(pal.line.copy(alpha = .75f), Offset(w * .92f, h * .58f), Offset(w * .52f, h * 1.0f), 1.5.dp.toPx())
     }
 }
 

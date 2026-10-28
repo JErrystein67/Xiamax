@@ -24,3 +24,11 @@ The bundled key means new builds install over old ones. The very first time, uni
 Icons (style, size, roundness, tint, names), wallpaper (phone's own / gradient / your photo, dim, blur),
 island (colour, opacity, position), widgets page (real Android widgets), pull-down panels (phone's own or Liquid Glass),
 performance (battery saver / balanced / full), HyperOS shortcuts. A Dynamic Island tile can be added to the phone's quick settings.
+
+
+## HyperOS-style rebuild
+- Home page: weather card, analog clock, world clock, glossy real app icons straight on a soft pastel wallpaper.
+- Smart page (swipe right from home): music card, brightness + volume capsules, calendar, clock, search, your Android widgets.
+- Control Center: common toggles, paired Bluetooth devices, brightness and volume sliders, mini player.
+- Glass: milky and frosted variants with rim light, content plate and a clipped-out ambient shadow.
+- Needs permissions for: location (weather), calendar, Bluetooth devices, notification access (island, notifications).
