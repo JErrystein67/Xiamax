@@ -235,6 +235,14 @@ private fun WidgetCard(id: Int, edit: Boolean) {
             .fillMaxWidth()
             .height(hDp.dp)
             .glass(24.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = {
+                        // Long press to trigger widget removal / management
+                        WidgetHub.remove(id)
+                    }
+                )
+            }
             .clip(RoundedCornerShape(24.dp))
     ) {
         val wDp = maxWidth.value
