@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Advanced Liquid Glass Modifier with dynamic drop-shadow and refraction highlights.
- * Fixes transparency/shadow rendering issues in Compose.
  */
 fun Modifier.glassEffect(
     cornerRadius: Dp = 26.dp,
@@ -37,7 +36,6 @@ fun Modifier.glassEffect(
                     BlurMaskFilter.Blur.NORMAL
                 )
             }
-            // Draw soft blurred shadow behind the glass without obscuring transparency
             canvas.nativeCanvas.drawRoundRect(
                 0f, 0f, size.width, size.height + 4.dp.toPx(),
                 cornerRadius.toPx(), cornerRadius.toPx(),
